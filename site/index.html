@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PDFBandit — Fix/Translate PDFs, your way.</title>
+<meta name="description" content="PDFBandit is a local-first PDF editor for translating, rebuilding, and making PDFs selectable — without changing the original file." />
+<meta property="og:title" content="PDFBandit — Fix/Translate PDFs, your way." />
+<meta property="og:description" content="Map a PDF once, then translate it, rebuild it, or add a selectable text layer. Local-first and browser-based." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="./favicon.ico" sizes="any" />
+<link rel="icon" href="./assets/icon.png" type="image/png" sizes="any" />
+<link rel="apple-touch-icon" href="./assets/icon.png" />
+<link rel="stylesheet" href="./assets/site.css" />
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="./index.html" aria-label="PDFBandit home">
+      <img src="./assets/icon.png" alt="" />
+      <span>
+        <strong>PDFBandit</strong>
+        <small>Fix/Translate PDFs, your way.</small>
+      </span>
+    </a>
+    <nav class="nav" aria-label="Main navigation">
+      <a class="nav-hide-sm" href="#features">Features</a>
+      <a class="nav-hide-sm" href="#how">How it works</a>
+      <a href="#privacy">Privacy</a>
+      <a class="nav-hide-sm" href="https://github.com/mehdisam/PDFBandit/discussions/">Discussions</a>
+      <a class="nav-github" href="https://github.com/mehdisam/PDFBandit" aria-label="PDFBandit on GitHub">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .7a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.2.8-.5v-2c-3.3.7-4-1.4-4-1.4-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.4 11.4 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.6.8.5A11.5 11.5 0 0 0 12 .7z"/></svg>
+        GitHub
+      </a>
+      <a class="btn btn-primary" href="./app/">Open PDFBandit</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="eyebrow">Local-first PDF repair &amp; translation</p>
+        <h1>Fix/Translate PDFs, <span>your way.</span></h1>
+        <p class="lead">Map a PDF once, then translate it, rebuild it, or add a selectable text layer — without rewriting the original file.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="./app/">Open PDFBandit</a>
+          <a class="btn btn-ghost" href="https://github.com/mehdisam/PDFBandit">View source</a>
+        </div>
+        <p class="fine">No install. No account. Your PDF stays in your browser.</p>
+      </div>
+      <div class="hero-art">
+        <svg class="editor-shot" viewBox="0 0 720 470" role="img" aria-labelledby="shotTitle shotDesc">
+          <title id="shotTitle">The PDFBandit editor</title>
+          <desc id="shotDesc">A PDF page with mapped text regions, a source-text panel and the Translate and Improve workflows.</desc>
+          <defs>
+            <filter id="softShadow" x="-20%" y="-20%" width="140%" height="160%">
+              <feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#172033" flood-opacity=".10"/>
+            </filter>
+          </defs>
+          <rect x="1" y="1" width="718" height="468" rx="12" fill="#fff" stroke="#d8e2ee"/>
+          <path d="M1 13a12 12 0 0 1 12-12h694a12 12 0 0 1 12 12v31H1z" fill="#f7faff"/>
+          <circle cx="20" cy="22" r="4" fill="#fca5a5"/><circle cx="33" cy="22" r="4" fill="#fcd34d"/><circle cx="46" cy="22" r="4" fill="#86efac"/>
+          <text x="66" y="27" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#172033">PDFBandit</text>
+          <text x="630" y="27" font-family="system-ui, sans-serif" font-size="11" fill="#5b6577">100%</text>
+          <path d="M1 44h150V469H13A12 12 0 0 1 1 457z" fill="#fbfcfe"/>
+          <text x="18" y="70" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="#5b6577">WORKFLOW</text>
+          <rect x="12" y="82" width="128" height="28" rx="5" fill="#2563eb"/>
+          <text x="26" y="100" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#fff">Translate</text>
+          <rect x="12" y="116" width="128" height="28" rx="5" fill="#fff" stroke="#d8e2ee"/>
+          <text x="26" y="134" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#172033">Improve</text>
+          <text x="18" y="174" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="#5b6577">PAGES</text>
+          <rect x="12" y="186" width="128" height="58" rx="6" fill="#fff" stroke="#d8e2ee"/>
+          <rect x="20" y="194" width="34" height="42" rx="3" fill="#eef4fb"/>
+          <path d="M24 201h26M24 207h22M24 213h24M24 219h16" stroke="#94a3b8" stroke-width="1.7" stroke-linecap="round"/>
+          <text x="62" y="207" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="#172033">Page 1</text>
+          <text x="62" y="222" font-family="system-ui, sans-serif" font-size="9" fill="#0f7b5f">source text</text>
+          <rect x="151" y="44" width="394" height="425" fill="#e9eef5"/>
+          <rect x="190" y="68" width="300" height="366" rx="2" fill="#fff" filter="url(#softShadow)"/>
+          <text x="214" y="103" font-family="Georgia, serif" font-size="16" font-weight="700" fill="#172033">INTRODUCTION</text>
+          <path d="M214 118h248M214 126h232M214 134h248M214 142h214" stroke="#cbd5e1" stroke-width="3" stroke-linecap="round"/>
+          <rect x="208" y="154" width="264" height="68" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+          <path d="M220 171h228M220 182h210M220 193h228M220 204h152" stroke="#7ba7e8" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="208" cy="154" r="3.5" fill="#2563eb"/><circle cx="472" cy="154" r="3.5" fill="#2563eb"/>
+          <circle cx="208" cy="222" r="3.5" fill="#2563eb"/><circle cx="472" cy="222" r="3.5" fill="#2563eb"/>
+          <text x="214" y="269" font-family="Georgia, serif" font-size="13" font-weight="700" fill="#172033">METHODS</text>
+          <path d="M214 282h248M214 290h226M214 298h248M214 306h198M214 314h238M214 322h174" stroke="#d6dee9" stroke-width="3" stroke-linecap="round"/>
+          <rect x="208" y="342" width="264" height="58" rx="4" fill="#f8fafc" stroke="#94a3b8" stroke-dasharray="5 4"/>
+          <text x="224" y="376" font-family="system-ui, sans-serif" font-size="10" fill="#5b6577">figure region</text>
+          <path d="M545 44h174V469H557a12 12 0 0 1-12-12z" fill="#fbfcfe"/>
+          <text x="562" y="70" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="#5b6577">SOURCE TEXT</text>
+          <rect x="560" y="82" width="144" height="74" rx="6" fill="#fff" stroke="#d8e2ee"/>
+          <text x="572" y="101" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="#172033">Introduction</text>
+          <path d="M572 112h118M572 121h104M572 130h116M572 139h82" stroke="#d6dee9" stroke-width="2" stroke-linecap="round"/>
+          <rect x="560" y="172" width="144" height="28" rx="5" fill="#2563eb"/>
+          <text x="578" y="190" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#fff">Extract this page</text>
+          <rect x="560" y="208" width="144" height="28" rx="5" fill="#fff" stroke="#d8e2ee"/>
+          <text x="578" y="226" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#172033">Make selectable</text>
+          <text x="562" y="266" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="#5b6577">STATUS</text>
+          <circle cx="567" cy="285" r="4" fill="#0f7b5f"/>
+          <text x="578" y="289" font-family="system-ui, sans-serif" font-size="10" fill="#172033">1 region mapped</text>
+          <text x="562" y="316" font-family="system-ui, sans-serif" font-size="9.5" fill="#5b6577">OCR runs on-device.</text>
+          <text x="562" y="330" font-family="system-ui, sans-serif" font-size="9.5" fill="#5b6577">The source PDF is unchanged.</text>
+          <path d="M151 44v425" stroke="#d8e2ee"/>
+          <path d="M545 44v425" stroke="#d8e2ee"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="features">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Built around the document</p>
+        <h2>One map. Two workflows. No silent rewrites.</h2>
+        <p>PDFBandit separates what a PDF <em>is</em> from what you want to <em>say</em>, so translation and repair stay predictable.</p>
+      </div>
+      <div class="cards">
+        <article class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h10M4 9h7M4 19l4-4a3.5 3.5 0 0 1 5 0l2 2M14 14l3-3 3 3"/></svg></div>
+          <h3>Translate in place</h3>
+          <p>Map the regions that matter, translate them, and keep the page layout intact. Source text and translated text live in separate variants.</p>
+        </article>
+        <article class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h9l5 5v11H5z"/><path d="M14 4v5h5M8 13h8M8 17h5"/></svg></div>
+          <h3>Make PDFs selectable</h3>
+          <p>Add an invisible text layer over scanned or image-only pages, so the document becomes searchable and copyable without changing how it looks.</p>
+        </article>
+        <article class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="8" cy="7" r="1.5" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="10" cy="17" r="1.5" fill="currentColor" stroke="none"/></svg></div>
+          <h3>One map, many variants</h3>
+          <p>The structure is shared. Each language or working copy gets its own content file, and switching variants never throws away edits.</p>
+        </article>
+        <article class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5M8 17h7"/></svg></div>
+          <h3>On-device OCR</h3>
+          <p>Scanned-page text is read locally with Tesseract.js. OCR is lazy, opt-out, and never writes placeholder text when it fails.</p>
+        </article>
+        <article class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l7 3v5c0 4.5-2.8 8-7 10-4.2-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <h3>Local-first by default</h3>
+          <p>Your PDF, map, and variants stay in this browser. There is no account, no upload queue, and no server-side copy of your document.</p>
+        </article>
+        <article class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v11M8 11l4 4 4-4M5 19h14"/></svg></div>
+          <h3>Export what you made</h3>
+          <p>Build a reconstructed PDF, or export a digitalized copy with the source text embedded as a selectable layer. The original stays untouched.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section alt" id="how">
+    <div class="wrap">
+      <div class="section-head center">
+        <p class="kicker">A short path from PDF to result</p>
+        <h2>Map once. Then work the way you want.</h2>
+        <p>No import wizard, no conversion queue. The editor opens the PDF directly in your browser.</p>
+      </div>
+      <div class="steps">
+        <article class="step">
+          <h3>Open the PDF</h3>
+          <p>Drop in a document. PDFBandit reads it locally and remembers the session in IndexedDB.</p>
+        </article>
+        <article class="step">
+          <h3>Map the regions</h3>
+          <p>Draw or detect text and figure regions. Proposals stay proposals until you confirm them.</p>
+        </article>
+        <article class="step">
+          <h3>Translate or improve</h3>
+          <p>Translate into a target variant, or extract source text and make the page selectable.</p>
+        </article>
+        <article class="step">
+          <h3>Save or export</h3>
+          <p>Save the map and content separately, or export a finished PDF copy. The source file never changes.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section privacy-band" id="privacy">
+    <div class="wrap privacy-grid">
+      <div>
+        <p class="kicker">Privacy is a design choice</p>
+        <h2>Your PDF is not our data.</h2>
+        <p class="section-head" style="margin-bottom:24px;color:#b9c4d6">PDFBandit runs in your browser. The document, its map, and its variants stay on your device unless you export them.</p>
+        <ul class="privacy-list">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l4 4L19 6"/></svg><span>No account and no PDF upload to a PDFBandit server.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l4 4L19 6"/></svg><span>OCR and text extraction run on-device.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l4 4L19 6"/></svg><span>Translation text goes only to the provider you choose.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l4 4L19 6"/></svg><span>“Forget saved session” clears the browser copy.</span></li>
+        </ul>
+      </div>
+      <aside class="privacy-note">
+        <strong>Read the details</strong>
+        <p>The privacy policy explains browser storage, translation providers, CDN requests, and how to clear local data.</p>
+        <p style="margin-top:12px"><a href="./privacy.html">Privacy Policy →</a></p>
+        <p><a href="./terms.html">Terms of Use →</a></p>
+      </aside>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="wrap">
+      <h2>Ready to mend a PDF?</h2>
+      <p>Open the editor and work on your document locally. No sign-up, no install, no source file rewritten.</p>
+      <a class="btn btn-primary" href="./app/">Open PDFBandit</a>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="./index.html">
+          <img src="./assets/icon.png" alt="" />
+          <span><strong>PDFBandit</strong><small>Fix/Translate PDFs, your way.</small></span>
+        </a>
+        <p>A local-first PDF mapping, translation, and selectable-text editor.</p>
+      </div>
+      <div class="footer-col">
+        <h3>Product</h3>
+        <a href="./app/">Open PDFBandit</a>
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+      </div>
+      <div class="footer-col">
+        <h3>Project</h3>
+        <a href="https://github.com/mehdisam/PDFBandit">GitHub</a>
+        <a href="https://github.com/mehdisam/PDFBandit/discussions/">Discussions</a>
+        <a href="https://github.com/mehdisam/PDFBandit/issues">Issues</a>
+        <a href="./LICENSE">Apache License 2.0</a>
+      </div>
+      <div class="footer-col">
+        <h3>Legal</h3>
+        <a href="./privacy.html">Privacy Policy</a>
+        <a href="./terms.html">Terms of Use</a>
+        <a href="./LICENSE">License</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 PDFBandit. Built for documents that deserve a second pass.</span>
+      <span><a href="./LICENSE">Apache-2.0</a> · <a href="https://github.com/mehdisam/PDFBandit">GitHub</a> · <a href="https://github.com/mehdisam/PDFBandit/discussions/">Discussions</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

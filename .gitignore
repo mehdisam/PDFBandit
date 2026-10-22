@@ -1,0 +1,11 @@
+node_modules/
+.DS_Store
+dist/
+.dist.tmp/
+doc/
+.wrangler/
+kia rio 2003.pdf
+sync-dist.sh
+pdfbandit/__vendor/
+pdfbandit/__app.html
+pdfbandit/__sess_*.html

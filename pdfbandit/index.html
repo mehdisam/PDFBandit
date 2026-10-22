@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PDFBandit — Fix/Translate PDFs, your way.</title>
+<meta name="description" content="PDFBandit — Fix/Translate PDFs, your way." />
+<link rel="icon" href="./assets/icon.png" type="image/png" sizes="any" />
+<link rel="apple-touch-icon" href="./assets/icon.png" />
+<link rel="stylesheet" href="./assets/styles.css" />
+<script type="importmap">
+{
+  "imports": {
+    "pdfjs-dist": "https://esm.sh/pdfjs-dist@4.10.38",
+    "pdf-lib": "https://esm.sh/pdf-lib@1.17.1",
+    "@pdf-lib/fontkit": "https://esm.sh/@pdf-lib/fontkit@1.1.1",
+    "polygon-clipping": "https://esm.sh/polygon-clipping@0.15.7"
+  }
+}
+</script>
+</head>
+<body>
+<nav id="menubar"></nav>
+<header id="toolbar">
+  <button id="btn-zoom-out" title="Zoom out">−</button>
+  <span id="zoom-label">100%</span>
+  <button id="btn-zoom-in" title="Zoom in">+</button>
+  <button id="btn-zoom-fit" title="Fit width">Fit</button>
+  <span id="mode-group" class="mode-group" title="Current mode — click or press Tab to cycle forward, Shift+Tab to cycle back (Region → Content → Preview → Original)">
+    <button data-mode="region" title="Region mode: draw, move, reshape, merge, split, lock and delete polygons. Items are shown but frozen">Region</button>
+    <button data-mode="content" title="Content mode: place and edit the region's text and image items. Polygons are read-only outlines (Alt-drag moves one)">Content</button>
+    <button data-mode="view" title="Preview mode: the reconstructed page, read-only">Preview</button>
+    <button data-mode="text" title="Original mode: select and copy the PDF's own text">Original</button>
+  </span>
+  <span id="lens-switcher" class="lens-switcher" role="group" aria-label="Workflow">
+    <button type="button" data-lens="translate" title="Translate this PDF into another language">Translate</button>
+    <button type="button" data-lens="improve" title="Make this PDF selectable and searchable">Improve</button>
+  </span>
+  <span id="status-progress" hidden>
+    <progress id="dl-progress" max="1" value="0"></progress>
+    <span id="dl-progress-label"></span>
+  </span>
+  <span id="status-msg" class="status"></span>
+  <span id="status-coverage" class="coverage"></span>
+</header>
+<!-- Contextual tool strip. Fixed height on purpose: showing or hiding a group
+     must never reflow the page, otherwise the PDF canvas shifts under a drag and
+     the region jumps. -->
+<div id="tools-row">
+  <span id="region-tools" class="tool-group" title="Region actions" hidden>
+    <span id="region-add-tools" class="tool-subgroup" hidden>
+      <button id="btn-add-text" title="Add a text item to this region (T): its dialog opens for typing — Content mode">Add text</button>
+      <button id="btn-add-image" title="Add an image item to this region: pick a file, or paste with Ctrl/Cmd+V — Content mode">Add image</button>
+      <span class="sep"></span>
+    </span>
+    <label class="inline">Background <input id="f-bg" type="color" value="#ffffff" title="Region background (Preview mode / export). Press I to open this picker — its eyedropper samples a colour from the screen" /></label>
+    <label class="inline" id="lbl-source-lang">Source
+      <select id="f-source-lang" title="Source language of the region text (Auto-detect works for server providers; Chrome's on-device model needs a named language for Latin-script text)"></select>
+    </label>
+    <label class="inline" id="lbl-target-lang"><span id="lbl-target-lang-text">Destination</span>
+      <select id="f-target-lang" title="Destination language for region translation"></select>
+    </label>
+    <button id="btn-translate-page-text" title="Read the page text under this region, translate it, and add it as a text item (flagged for review) — Shift+T">Translate from page text</button>
+    <button id="btn-make-selectable" hidden title="Read the text under the selected region(s) and write it into the Selectable text variant (Shift+T)">Make this selectable</button>
+    <button id="btn-lock-region" title="Freeze this region's polygon (L): it can no longer be moved, reshaped, split, merged or deleted — its text and image items stay editable">Lock polygon</button>
+  </span>
+  <span id="item-tools" class="tool-group" title="Selected item actions" hidden>
+    <button id="btn-item-fit-text" title="Resize the text box to fit its text (it grows past the polygon rather than crop the text — Content mode)">Resize to text</button>
+    <span class="sep"></span>
+    <button id="btn-item-front" title="Bring this item to the front (drawn last, on top)">Bring to front</button>
+    <button id="btn-item-back" title="Send this item to the back (drawn first, underneath)">Send to back</button>
+    <span class="sep"></span>
+    <button id="btn-item-delete" title="Delete the selected item (Delete)">Delete item</button>
+  </span>
+  <span id="image-tools" class="tool-group" title="Image item options" hidden>
+    <label class="inline">Fit
+      <select id="f-item-fit"><option value="contain">contain</option><option value="cover">cover</option></select>
+    </label>
+    <button id="btn-crop-img" title="Crop the page area of this item's box into the image source">Use page crop</button>
+  </span>
+</div>
+<div id="lens-modal" hidden role="dialog" aria-modal="true" aria-labelledby="lens-modal-title">
+  <div class="modal-box lens-box">
+    <h3 id="lens-modal-title">What would you like to do with this PDF?</h3>
+    <p class="hint">You can switch between workflows at any time — your map, variants and edits stay exactly as they are.</p>
+    <div class="lens-choices">
+      <button type="button" class="lens-choice" data-lens-choice="translate">
+        <strong>Translate</strong>
+        <span>Read the PDF in another language</span>
+      </button>
+      <button type="button" class="lens-choice" data-lens-choice="improve">
+        <strong>Improve</strong>
+        <span>Make the PDF selectable and searchable</span>
+      </button>
+    </div>
+  </div>
+</div>
+<div id="picker-modal" hidden>
+  <div class="modal-box">
+    <h3 id="picker-title">Multiple maps found — pick one</h3>
+    <div id="picker-list"></div>
+    <div class="row"><button id="picker-cancel">Start empty</button></div>
+  </div>
+</div>
+<div id="variant-modal" hidden>
+  <div class="modal-box">
+    <h3>New content variant</h3>
+    <div class="row"><label for="variant-lang">Language code</label><input id="variant-lang" type="text" size="8" placeholder="de" /></div>
+    <div class="row"><label for="variant-label">Label (optional)</label><input id="variant-label" type="text" size="18" placeholder="German" /></div>
+    <div class="row"><label><input id="variant-copy" type="checkbox" checked /> Copy the active content, flagged for review</label></div>
+    <p class="hint">A variant is one content file of the same shared map. Copied text comes back marked <b>review</b> — a copy is never a claim that it is already translated.</p>
+    <div class="row"><button id="variant-create">Create</button><button id="variant-cancel">Cancel</button></div>
+  </div>
+</div>
+<div id="warn-modal" hidden>
+  <div class="modal-box">
+    <h3>Map / PDF mismatch</h3>
+    <p id="warn-text"></p>
+    <div class="row">
+      <button id="warn-load">Load anyway</button>
+      <button id="warn-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<!-- The outward paths' decision dialog (spec 1.5 §20/§22, reused by §21): the app
+     asks before overwriting authored content, and can remember the answer for a run. -->
+<div id="choice-modal" hidden>
+  <div class="modal-box">
+    <h3 id="choice-title">Choose</h3>
+    <p id="choice-text"></p>
+    <canvas id="choice-preview" width="380" height="170" hidden></canvas>
+    <p class="hint" id="choice-legend" hidden><span class="swatch swatch-existing"></span> existing region &nbsp;·&nbsp; <span class="swatch swatch-proposed"></span> detected proposal</p>
+    <div class="row" id="choice-buttons"></div>
+    <div class="row" id="choice-apply-row" hidden>
+      <label><input id="choice-apply" type="checkbox" /> <span id="choice-apply-label">Apply to all remaining regions in this run</span></label>
+    </div>
+  </div>
+</div>
+<main id="layout">
+  <aside id="thumbs"></aside>
+  <section id="stage-wrap">
+    <div id="stage">
+      <canvas id="pdf-canvas" hidden></canvas>
+      <div id="textLayer" class="textLayer"></div>
+      <canvas id="view-canvas" hidden></canvas>
+      <svg id="overlay"></svg>
+      <div id="draw-hint" hidden>Click to add points · Enter/double-click to close · Esc to cancel</div>
+    </div>
+  </section>
+  <aside id="props">
+    <h3>Selected Region</h3>
+    <div id="props-empty">Nothing selected.<br/>In <b>Region</b> mode press <b>P</b> (or Tools ▸ Add polygon) to draw a polygon, or click a region to select it, then drag to move it. In <b>Content</b> mode click a region to choose where items go, then <b>T</b> adds a text item.</div>
+    <div id="props-form" hidden>
+      <label>ID <input id="f-id" readonly /></label>
+      <div id="f-ocr" class="badge badge-ocr" hidden title="No usable selectable text under this region — the source is a scan, an image, or a broken text layer. Use Improve ▸ Make this selectable on this page, or right-click the region and choose Read with OCR; the badge clears when real text is written.">not selectable yet</div>
+      <div id="f-kind" class="badge badge-kind" hidden title="The class the detector gave this region. It is a hint on an untouched proposal and disappears on the first edit."></div>
+      <h3>Content items</h3>
+      <div id="items-list" class="items-list"></div>
+      <div id="item-editor" hidden>
+        <label>Image source <input id="f-item-source" placeholder="data:image/png;base64,…" /></label>
+        <div class="row">
+          <label class="inline">w <input id="f-item-w" type="number" step="1" size="3" /></label>
+          <label class="inline">h <input id="f-item-h" type="number" step="1" size="3" /></label>
+        </div>
+      </div>
+      <p class="hint">Click a box to select it (drag to move, corner handles to resize); double-click a text box to edit its text in a dialog. Right-click a box to resize it to its text, change its stacking order, or delete it; right-click the region to add text/image. The manual “copy underlying content as image → external tool → paste” workflow is the default.</p>
+    </div>
+    <section id="review-section" hidden>
+      <h3 id="review-heading">Confirm translations</h3>
+      <div id="review-list" class="review-list"></div>
+    </section>
+    <h3>Map</h3>
+    <div id="map-info">No PDF loaded.</div>
+  </aside>
+</main>
+<input type="file" id="file-pdf" accept="application/pdf,.pdf,.pmap,.content.json,.json" multiple hidden />
+<input type="file" id="file-pmap" accept=".pmap,.content.json,application/json,.json" multiple hidden />
+<input type="file" id="file-item-image" accept="image/*" hidden />
+<div id="ctx-menu" class="ctx-menu" hidden></div>
+<div id="settings-modal" hidden>
+  <div class="modal-box prefs-box">
+    <h3>Preferences</h3>
+    <div class="pref-tabs" role="tablist" aria-label="Preferences">
+      <button type="button" class="pref-tab active" id="pref-tab-translation" role="tab"
+        aria-selected="true" aria-controls="pref-panel-translation" data-pref-tab="translation">Translation Service</button>
+      <button type="button" class="pref-tab" id="pref-tab-ocr" role="tab"
+        aria-selected="false" aria-controls="pref-panel-ocr" data-pref-tab="ocr">OCR Service</button>
+      <button type="button" class="pref-tab" id="pref-tab-region" role="tab"
+        aria-selected="false" aria-controls="pref-panel-region" data-pref-tab="region">Region Detection</button>
+    </div>
+
+    <div class="pref-panel" id="pref-panel-translation" role="tabpanel" aria-labelledby="pref-tab-translation">
+      <label class="col">Translation provider
+        <select id="set-provider"></select>
+      </label>
+      <label class="col" id="set-endpoint-row" hidden>LibreTranslate URL
+        <input id="set-endpoint" placeholder="https://libretranslate.com/translate" />
+      </label>
+      <label class="col" id="set-apikey-row" hidden>API key (optional)
+        <input id="set-apikey" placeholder="only if the instance requires one" />
+      </label>
+      <label class="col">Default source language
+        <select id="set-source-lang" title="Language the region text is in. Auto lets the provider detect it (Chrome's on-device model cannot — it needs a named source language)."></select>
+      </label>
+      <label class="col">Default target language
+        <select id="set-target-lang"></select>
+      </label>
+      <p class="hint" id="set-chromeai-row" hidden>On-device translation: <span id="set-chromeai-status">checking…</span></p>
+      <p class="hint">Translation uses Chrome's built-in on-device model (<b>chrome-ai</b> — private, no key, but Chrome-only), a public LibreTranslate instance (default <code>lt.dialectapp.org</code>) or a custom URL; the public instances are community servers, so expect rate limits or the occasional outage. The manual copy-and-paste workflow always works.</p>
+      <p class="hint">Both language fields also pre-select the region toolbar. <b>Auto</b> source lets the provider detect the language (Chrome's on-device model needs a named one). Choosing a LibreTranslate server fills the URL field with that server's address — edit it freely to point anywhere; pick <b>LibreTranslate (custom URL…)</b> for a server that is not listed.</p>
+    </div>
+
+    <div class="pref-panel" id="pref-panel-ocr" role="tabpanel" aria-labelledby="pref-tab-ocr" hidden>
+      <label class="col">OCR engine (scanned regions)
+        <select id="set-ocr-engine"
+          title="Tesseract.js runs in this browser and keeps the page crop on this device. The engine, WASM core and language data download on first use and are cached by the browser afterwards. Off leaves scanned regions sourced from their text layer only; scan regions stay not selectable yet. The OCR language follows the PDF/source language.">
+          <option value="tesseract">Tesseract.js — on-device, lazy download (default)</option>
+          <option value="off">Off — leave scans not selectable yet</option>
+        </select>
+      </label>
+      <p class="hint">OCR runs entirely in this browser (Tesseract.js, Apache-2.0); the engine and language data download from jsDelivr on the first scanned extraction and are then cached. The OCR language follows the PDF/source language; <b>Auto</b> falls back to English. <b>Table recognition</b> remains out of MVP.</p>
+      <p class="hint">OCR is used by <b>Improve ▸ Make this selectable</b>, the region context menu’s <b>Read with OCR</b>, translation from page text, and Detect-and-extract. Detection alone never starts the OCR engine; scanned regions stay badged <b>not selectable yet</b> until a harvest runs.</p>
+    </div>
+
+    <div class="pref-panel" id="pref-panel-region" role="tabpanel" aria-labelledby="pref-tab-region" hidden>
+      <label class="col">Text box padding (pt)
+        <input id="set-text-padding" type="number" min="0" max="72" step="1"
+          title="A detected region is grown by this many PDF points on every side, and a text box is the region interior inset by the same amount — so the replacement text keeps a margin from the polygon edge (and the mask gains it) without taking room from the text. Applied when regions are detected, never when a text box is added; manual regions are left as drawn. 0 = flush." />
+      </label>
+      <label class="col">Re-detection overlap threshold
+        <input id="set-detect-overlap" type="number" min="0.3" max="0.95" step="0.05"
+          title="How much a detected proposal must overlap an existing region before the two are treated as the same block (IoU of their bounding boxes). Containment — one box fully inside the other — always counts as a conflict regardless of this number. Higher = fewer conflicts; lower = more proposals offered as replacements. Re-detection only; first-time detection never conflicts." />
+      </label>
+      <label class="col">Scanned-page detection
+        <select id="set-detect-tier"
+          title="Which detector runs on a page. Auto uses the text layer when the page has one and the CV detector when it does not — which is what a scanned page needs. Force one to override, per run. The CV engine is chosen below. Proposals only either way; nothing is confirmed automatically.">
+          <option value="auto">Auto — by text layer (default)</option>
+          <option value="digital">Always text layer</option>
+          <option value="cv">Always CV (scanned)</option>
+        </select>
+      </label>
+      <label class="col">CV engine (scanned pages)
+        <select id="set-cv-engine"
+          title="Which engine proposes regions on scanned pages. Classical is the dependency-free built-in pipeline and starts instantly. OpenCV.js is an experimental alternative: it runs the same proposal contract and shared classifier but uses OpenCV's adaptive threshold and morphology; it downloads ≈10 MB from jsDelivr on first use, is cached by the browser afterwards, and never loads at startup. It currently matches classical on the reference cover but does not beat it. If it cannot load, the run falls back to classical CV with a status note. Pages with a text layer are unaffected.">
+          <option value="classical">Classical — fast, no download (default)</option>
+          <option value="opencv">OpenCV.js — experimental, ≈10 MB on first use</option>
+        </select>
+      </label>
+      <p class="hint"><b>Text box padding</b> grows a <b>detected</b> region by that many points per side, so the polygon (and its mask) gains a margin and a text box — the region interior inset by the same amount — keeps the room the detector gave the text (0 = flush). It is applied when regions are <b>detected</b>, never when a text box is added; a region you drew yourself keeps exactly the shape you drew and its box is simply inset by the padding. <b>Re-detection overlap threshold</b> is the IoU at which a re-run treats a proposal as the same block: above it the conflict is reviewed (Replace / Don't add); containment always counts; match-and-identical proposals are left alone, so re-detecting an unchanged page changes nothing. <b>Scanned-page detection</b> picks the detector per page: <b>Auto</b> uses the text layer when the page has one and the CV detector when it does not; force either to override, per run. <b>CV engine</b> picks how the CV detector segments the bitmap: <b>classical</b> is dependency-free and instant; <b>OpenCV.js</b> is experimental and downloads ≈10 MB on first use (browser-cached, never at startup) to use OpenCV's adaptive threshold and morphology; it then falls back to classical with a status note if it cannot load. Both engines share the same structural text/image classifier, type-aware grouping and proposal contract; OpenCV currently matches, rather than beats, classical on the reference cover.</p>
+    </div>
+
+    <div class="row"><button id="settings-close">Close</button></div>
+  </div>
+</div>
+<div id="help-modal" hidden>
+  <div class="modal-box">
+    <h3>PDFBandit — Shortcuts &amp; workflow</h3>
+    <p class="hint">Fix/Translate PDFs, your way. <span class="help-version">Version 1.0.0 · spec revision 1.6</span></p>
+    <table class="help-table">
+      <tr><td>Ctrl/Cmd+O</td><td>Open PDF (select the PDF + its <code>.pmap</code> map and <code>.content.json</code> variant together to load the whole project)</td></tr>
+      <tr><td>Ctrl/Cmd+S</td><td>Save the project: the shared <code>.pmap</code> map + the active <code>.content.json</code> variant. <b>File ▸ Save map</b> / <b>Save content</b> write just one of the two — the info panel says which half has unsaved changes</td></tr>
+      <tr><td>Ctrl/Cmd+F</td><td><b>Find &amp; replace</b> in the content the current workflow is editing: the active <b>Translate</b> content variant, or the <b>Improve</b> Selectable text variant. It searches every page of the loaded content, respects paragraph, list-item and table-cell boundaries, keeps character formatting, and supports a <b>Regular expression</b> mode and <b>Match case</b>. <b>Replace all</b> is one undo step; a zero-width regex match is ignored</td></tr>
+      <tr><td>Project on disk</td><td>A project is <b>two files</b>: a structure-only <code>map.pmap</code> (pages, region ids, polygons, locks) and one <code>map.&lt;language&gt;.content.json</code> per language/variant (backgrounds + content items, keyed by region id). The same map can back many variants; only one variant is active at a time. <b>File ▸ New content variant…</b> adds one (empty, or a copy flagged for review); <b>File ▸ Open map or content…</b> switches to one from disk. A v1.1 single-file map must be split first with <code>tools/pmap-migrate.mjs</code></td></tr>
+      <tr><td>Browser refresh</td><td>The open PDF, its map and the active content variant are remembered in this browser (IndexedDB) and restored on reload — nothing is uploaded. <b>File ▸ Forget saved session</b> removes them and this PDF’s saved language/workflow choice</td></tr>
+      <tr><td>File ▸ Close PDF</td><td>Unloads the current PDF, map and content variant, clears this PDF’s saved browser session and per-document language/workflow choice, and returns to the empty editor. Other preferences are kept</td></tr>
+      <tr><td>Workflows</td><td><b>Translate</b> and <b>Improve</b> are intents, not data states: one PDF, one map, one set of variants. The import question asks once; the header switcher changes the menus, labels and default variant without writing anything. Translate works in the target-language variant and returns there; Improve foregrounds the PDF-language variant, labelled <b>Selectable text</b>. The text you type in Improve is the same source text Translate reads.</td></tr>
+      <tr><td>Improve ▸ Export digitalized PDF…</td><td>Writes a copy named <code>&lt;stem&gt;.digitalized.pdf</code> with an invisible, selectable text layer over every region that holds text in the PDF-language variant. The source PDF is untouched and the page looks unchanged. Regions with no extracted text (including <b>not selectable yet</b> and figures) stay uncovered; the status bar reports how many. If the PDF-language variant is not loaded, the command first runs the normal extraction flow.</td></tr>
+      <tr><td>Status tags (Shift+D)</td><td>Toggles the on-page status tags (<b>Shift+D</b>). Text regions show their detector class (<b>heading</b> / <b>text</b>; a hand-drawn region reads <b>text</b>), plus <b>has source text</b> / <b>selectable</b> when the PDF-language variant already has content, or <b>source text not readable</b> / <b>not selectable yet</b> when it has none and OCR could not fill it. Detected figures stay untagged and keep their dashed outline. Ids stay visible when the tags are hidden; the tags are an inspection aid and never change the map or content.</td></tr>
+      <tr><td>Select regions not yet selectable</td><td><b>Improve ▸ Select regions not yet selectable</b> (<b>Shift+A</b> in either lens) selects every text-convertible region on the current page that has no content in the PDF-language variant. Detected figures and filled regions are left out; regions whose source text is unreadable are included.</td></tr>
+      <tr><td>Improve ▸ Make this selectable…</td><td>Reads the PDF into the <b>Selectable text</b> variant: the text layer, or OCR for scanned and mixed-page regions with no usable selectable text when <b>Preferences… ▸ OCR Service</b> is on. Choose <b>selected region(s)</b>, <b>this page</b>, or <b>all pages</b>. Regions that already hold content are skipped; detected figures are not OCR candidates. One undo step per run, and the source PDF is never modified.</td></tr>
+      <tr><td>Read with OCR (right-click)</td><td>On a region badged <b>source text not readable</b> / <b>not selectable yet</b>, right-click it in <b>Region mode</b> and choose <b>Read with OCR</b>: Tesseract reads <b>only the right-clicked region</b>, never the whole page or the rest of a multi-selection, and writes the result into the PDF-language variant as review-flagged text. OCR runs on-device and leaves the region waiting if it cannot read it.</td></tr>
+      <tr><td>Ctrl/Cmd+Z / Shift+Z (or Y)</td><td>Undo / Redo</td></tr>
+      <tr><td>Ctrl/Cmd+A</td><td><b>Region mode</b>: select every region on the current page. <b>Content mode</b>: select every text and image item on the current page (use Delete/Backspace to remove them together).</td></tr>
+      <tr><td>Tab / Shift+Tab</td><td>Cycle mode forward / backward: <b>Region → Content → Preview → Original → Region</b> (also shown in the toolbar; <b>Shift+Tab</b> steps the ring back). <b>Region</b> mode is the geometry editor (draw / move / reshape / merge / split / lock / delete polygons); <b>Content</b> mode is the item editor (place and edit text and image items); <b>Preview</b> is the read-only reconstruction; <b>Original</b> selects the PDF's own text</td></tr>
+      <tr><td>T</td><td><b>Content mode</b>: add a text item to the selected region — its dialog opens for typing, and the new box is <b>fitted to the text</b> when you finish (nothing cropped, no dead space). Enter starts a new line; <b>Done</b> (or Esc) keeps the text, Cancel discards it. The box is the region interior inset by the <b>Text box padding</b> set in Preferences… (default 4 pt), and <b>adding a text box never changes the region's shape</b> — the padding was applied when the region was <b>detected</b> (the detected polygon grows by it, so the mask gains the margin and the box keeps the room the detector gave the text). In Region mode T is inert: items are frozen there</td></tr>
+      <tr><td>Ctrl/Cmd+V</td><td><b>Content mode</b>: paste a clipboard image as an image item in the selected region</td></tr>
+      <tr><td>Contextual toolbar</td><td>Shows only what matches the mode and the selection. <b>Region mode</b>: region actions (background, lock polygon; in <b>Translate</b> also the <b>Source</b> and <b>Destination</b> languages and <b>Translate from page text</b>; in <b>Improve</b> also the <b>Source</b> language and <b>Make this selectable</b>). <b>Content mode</b>: with a region selected — <b>Add text</b>, <b>Add image</b>, the same region actions; with an item selected — <b>Resize to text</b>, <b>Bring to front</b> / <b>Send to back</b>, <b>Delete item</b> (plus image fit / crop for an image). Text formatting lives <b>inside the text box dialog</b>, next to the text it formats</td></tr>
+      <tr><td>Text box dialog</td><td><b>Double-click a text box</b> (or press <b>T</b> to add one) to open it. Its header holds the text tools: Bold / Italic / Underline / color / font / size / line / align / direction, plus H (heading) / • / 1. (lists) / ▦ (table). Formatting applies to the selected text only; with no selection it becomes the style of the next characters you type. Alignment applies to the current paragraph or cell. <b>Line</b> sets the <b>line spacing of the whole box</b> (a multiple of the font size, default 1.25): it is saved with the item, the box grows so no line is cropped, and table rows keep their own height. Inside a table cell, Tab/Shift+Tab move between cells, the column/row handles can be dragged to resize, and the table tool group appears (border color/width, add/remove row/column, column width, row height). The dialog is <b>resizable</b> (drag its bottom-right corner) and its text area is a <b>free-form editor</b>: it is as big as the dialog, not as big as the box, and it is for writing, editing and formatting only. Size the box on the page, where the box is — drag its corner handles in Edit mode (a new box is fitted to its text automatically), or use <b>Resize to text</b> / <b>R</b> to fit a box to the text it holds</td></tr>
+      <tr><td>Paste in a text box</td><td>Paste formatted text, RTL text or tables from Word / LibreOffice / Excel directly: HTML tables become table blocks, spreadsheet cells (tabs) become a table, and images become image items</td></tr>
+      <tr><td>Background</td><td>Set the region's fill color in the region toolbar. A region is masked (its color painted over the page) when it holds content <b>or</b> you gave it a non-default color — an all-default empty region stays transparent. The mask is previewed in both editing modes for every deselected region (items included) and exactly as Preview mode / the export render it; the region you are editing stays transparent, except that while the color picker has focus its own mask is shown so you can see the color you are choosing</td></tr>
+      <tr><td>0</td><td>Toggle overlay</td></tr>
+      <tr><td>Delete</td><td><b>Region mode</b>: delete the picked vertex; else the selected region(s). <b>Content mode</b>: delete the selected item; inert on a region-only selection (deleting a polygon needs Region mode)</td></tr>
+      <tr><td>P</td><td>Add polygon (<b>Region mode</b>): toggle the drawing tool — click to add points, Enter/double-click to close, Esc cancels. While armed the cursor is a crosshair and a hint is shown. Inert in Content mode</td></tr>
+      <tr><td>L</td><td>Lock / unlock the selected region's polygon (<b>both editing modes</b>): a locked region can't be moved, reshaped, split, merged or deleted, but its text and image items stay fully editable. Locked regions are drawn dashed with a padlock, and their vertices stop showing handles. One undo step</td></tr>
+      <tr><td>I</td><td>Open the region <b>background colour</b> picker (<b>both editing modes</b>, whenever the background control is on screen — i.e. a region is selected): the same as clicking the Background swatch. The native picker's <b>eyedropper</b> samples a colour from anywhere on the page, so a region can be matched to the original. While the picker is open the selected region previews its mask, so the colour is visible live. Inert when no region is selected</td></tr>
+      <tr><td>Shift+D</td><td>Show or hide the source-text / selectability status tags on the page (the same as Improve ▸ Show selectability status)</td></tr>
+      <tr><td>Shift+A</td><td>Select every text-convertible region on the current page that has no source text / is not yet selectable (the same as Improve ▸ Select regions not yet selectable). Detected figures and filled regions are excluded; unreadable regions are included</td></tr>
+      <tr><td>D</td><td>Detect regions on this page (<b>any mode</b>; the same as Tools ▸ Detect regions on this page). A page with a text layer gets text regions from that layer plus <b>figure proposals</b>: raster image placements and painted vector drawings, unpadded and counted separately in the status bar. A scanned page is read with the built-in classical-CV detector (grayscale → adaptive threshold → morphology → connected components) and gets block proposals to trace. <b>Preferences… ▸ Region Detection</b> can force either detector for a run. A fresh figure is badged <b>detected: image</b> and drawn with a dashed outline until you edit it. Proposals only — nothing is confirmed automatically</td></tr>
+      <tr><td>R</td><td>Resize to text in page (<b>Content mode</b>): runs <b>Resize to text</b> on every text box of the page at once — one undo step, and no box keeps dead space. The fit first uses the <b>line spacing</b> (a tighter multiple of the font size, down to the minimum, when that is what brings the text inside the region), and only then grows a box <b>past the polygon</b> rather than crop the text: the region is then painted <b>orange</b>, because the polygon is what clips the overhang</td></tr>
+      <tr><td>Click empty space</td><td>Clear the whole selection — the selected <b>region(s)</b> and the selected <b>content item</b> — in either editing mode, so the panel returns to "Nothing selected". Hold <b>Shift</b> to keep the selection. (Use <b>P</b>/Tools ▸ Add polygon in Region mode to start a new polygon.)</td></tr>
+      <tr><td>Drag empty space</td><td>Rubber-band select. <b>Region mode</b>: the band picks regions, highlighting them live as it sweeps (hold <b>Shift</b> to add to the current selection). <b>Content mode</b>: with a region selected the band picks an <b>item</b> of that region (the topmost box under it); with nothing selected it picks regions, so a region can still be chosen to work in</td></tr>
+      <tr><td>Click a region</td><td><b>Region mode</b>: grab &amp; move it (when not mid-drawing); Shift-click toggles it in/out of a multi-region selection. <b>Content mode</b>: select it — the polygon is a read-only outline there, and it is how you choose the region that receives new items (hold <b>Alt</b> while dragging to move it)</td></tr>
+      <tr><td>Cursor tells you what a press grabs</td><td>Hovering the overlay shows, <b>before you press</b>, what the press will do: <b>move</b> (4-way arrow) = the region's face; a <b>resize</b> cursor (<span>↕</span> / <span>↔</span> / <span>⤡</span>) = the polygon line under the pointer, its axis perpendicular to that line (a horizontal line reads ↕); <b>grab</b> (hand) = a region vertex (the round blue dots); the square <b>dark-grey</b> corner handles belong to the text box / image and carry their own resize cursor. A locked region only selects, so it never shows the move cursor. In <b>Content mode</b> the polygon is a read-only outline: it shows the plain pointer, and only Alt brings the region's own cursor back</td></tr>
+      <tr><td>Orange region</td><td>A region whose text or image sticks out of its <b>polygon</b> is filled <b>orange</b> in Edit mode: the content is only drawn where the polygon is, so whatever overhangs is clipped. <b>Resize to text</b> / <b>R</b> never crop the text itself — it fits it with the line spacing, and grows the box past the polygon when even that is not enough — so orange means "enlarge or reshape this polygon, or shorten the text". The orange is an editing aid: it is not drawn in Preview mode and never reaches the export.</td></tr>
+      <tr><td>Alt/Option over a text box or image</td><td>The press goes to the <b>region</b> underneath instead of the item (the cursor switches to the region's own cursor while Alt is held) — useful when a box or image covers the region. In <b>Region mode</b> Alt keeps its other meanings inside a region: near a line it grabs that line, and on a vertex handle it grabs that vertex (the handle keeps its precedence). In <b>Content mode</b> Alt additionally makes the region <b>movable by drag</b> (one undo step, like a Region-mode move) but never unlocks vertex editing, merge/split or lock. Alt is never a delete, so reaching for the region can't destroy a vertex by accident</td></tr>
+      <tr><td>Click a text box</td><td><b>Content mode</b>: select it — drag to move it, drag a corner handle to resize it (the whole content scales as a unit). A click never starts editing. Its corner handles are <b>squares in dark grey</b>, so they can't be confused with the round blue region vertices. In Region mode items are frozen: they are drawn as Preview mode draws them, but nothing is clickable</td></tr>
+      <tr><td>Double-click a text box</td><td><b>Content mode</b>: open the text box dialog to edit its text (see <b>Text box dialog</b> above)</td></tr>
+      <tr><td>Drag vertex</td><td><b>Region mode</b>: move a corner; handles appear <b>only on selected regions</b> and the picked vertex is highlighted — press Delete to remove it</td></tr>
+      <tr><td>Drag edge</td><td><b>Region mode</b>: move a whole edge; adjacent edges stretch like threads</td></tr>
+      <tr><td>Double-click vertex</td><td><b>Region mode</b>: snap that corner to a right angle (90°)</td></tr>
+      <tr><td>Ctrl+click vertex</td><td><b>Region mode</b>: delete that vertex (Alt/Option is not a delete: it means "the region, not the item", so Alt+click on a vertex grabs and moves it instead). On macOS, where Ctrl+click is a secondary click, the same thing works as Ctrl+right-click on the vertex</td></tr>
+      <tr><td>Double-click edge</td><td><b>Region mode</b>: insert a vertex at the click point</td></tr>
+      <tr><td>Drag inside region</td><td><b>Region mode</b>: move the whole region (in Content mode, hold <b>Alt</b> to do the same)</td></tr>
+      <tr><td>Enter / double-click</td><td><b>Region mode</b>: close polygon or finish split line</td></tr>
+      <tr><td>Esc</td><td>Cancel current draft (or close the text dialog)</td></tr>
+      <tr><td>Right-click region</td><td><b>Region mode</b>: the full menu — <b>Add text</b> / <b>Add image</b> (which place the item and drop you into Content mode with it selected), copy underlying content as image / as text, translation commands in <b>Translate</b>, <b>Read with OCR</b> (only when the right-clicked region is source-unreadable / not yet selectable), lock the polygon, merge, split, or delete the region. <b>Content mode</b>: only <b>Add text</b> / <b>Add image</b></td></tr>
+      <tr><td>Right-click vertex</td><td>Make that corner a right angle (90°) or delete the vertex</td></tr>
+      <tr><td>Shift+T</td><td><b>Translate from page text</b> in Translate, or <b>Make this selectable</b> in Improve. Translate reads the PDF text layer under a region (or the whole multi-selection), translates it with the provider from Preferences…, and stores the result as a target text item flagged <b>review</b>; Improve reads the same source text into <b>Selectable text</b> as a review-flagged item. In Improve the language of the source text is the <b>Source</b> dropdown in the region toolbar — pick it there; no language prompt appears. A scanned or broken-encoding region is read with OCR when <b>Preferences… ▸ OCR Service</b> is on; if OCR cannot read it, the status says so and <i>Copy underlying content as image</i> is still available. The key is <b>live only while the button is</b>: it lives in the contextual region toolbar (Section 9b), so it does nothing unless a region is selected in an editing mode (<b>Region</b> or <b>Content</b>) with no item and no dialog open. <b>T</b> alone still adds an empty text box (Content mode)</td></tr>
+      <tr><td>Translate (source → target)</td><td>The region toolbar picks the source (<i>Auto-detect</i> lets a server provider detect it) and target languages. <b>chrome-ai</b> runs Chrome's built-in on-device model: free, private, no key — Chrome 138+ desktop, and the first use of each language pair downloads a model once (progress is shown in the status bar). It needs a named source language for Latin-script text, and supports neither Persian nor Urdu. In other browsers it reports itself unavailable and the other providers keep working.</td></tr>
+      <tr><td>Right-click content box</td><td><b>Content mode</b>: <b>Resize to text</b> (make the box exactly big enough for its text — the fit tightens the line spacing when that brings the text inside the region, and grows the box past the <b>polygon</b> rather than crop the text, painting the region <b>orange</b>, since the polygon is what clips the overhang), <b>Bring to front</b> / <b>Send to back</b> (stacking order only, for a box with more than one item), or delete the content item</td></tr>
+      <tr><td>Shift+click</td><td><b>Region mode</b>: multi-select regions (then Merge from the region context menu). Merge takes the union of all selected regions, overlapping or not — separate parts become one multi-part region — and every item keeps its own position</td></tr>
+    </table>
+    <p class="hint">Modes and page navigation live in the menu bar (the current mode is shown in the toolbar; only zoom stays on the toolbar; pages can also be picked from thumbnails).
+      In <b>Region mode</b> press <b>P</b> (or Tools ▸ Add polygon) then click points to draw a polygon, or click a region to grab &amp; move it; clicking empty space deselects. Vertices and edges are always interactive there. In <b>Content mode</b> the polygons are read-only outlines: click one to choose where items go, then <b>T</b> adds text, Ctrl/Cmd+V pastes an image, and a box can be dragged, resized or double-clicked to edit — hold <b>Alt</b> to move the region instead. <b>Original mode</b> hides the overlay so you can select text from the PDF.
+      Workflow: choose <b>Translate</b> or <b>Improve</b> → map regions per page (Region mode) → fill in content (Content mode) → save the project (<code>document.pmap</code> + <code>document.en.content.json</code>).
+      A deselected region that already holds content is rendered just as <b>Preview mode</b> and the export render it — its <b>background</b> mask plus its content items; the region you are editing stays transparent so you always see the page you are working on.
+      Source PDF is never modified. Translation uses a public LibreTranslate instance (default <code>lt.dialectapp.org</code>, change it — URL included — in Preferences…); pick <b>None (manual / external)</b> there to copy the underlying content as an image, translate externally, and paste it back.</p>
+    <div class="row"><button id="help-close">Close</button></div>
+  </div>
+</div>
+<div id="about-modal" hidden role="dialog" aria-modal="true" aria-labelledby="about-title">
+  <div class="modal-box about-box">
+    <h3 id="about-title">About PDFBandit</h3>
+    <p class="about-tagline">Fix/Translate PDFs, your way.</p>
+    <p class="about-version">Version 1.0.0 · spec revision 1.6</p>
+    <p><b>PDFBandit</b> fixes and translates PDFs your way: map a page once, then write or translate text into language variants and export a reconstructed or selectable PDF. The source PDF is never modified.</p>
+    <p>Projects use a shared <code>.pmap</code> map plus per-language <code>.content.json</code> variants. Your PDF, map and variants stay in this browser (IndexedDB); translation text goes only to the provider you choose, and OCR runs on-device.</p>
+    <div class="row"><button id="about-close">Close</button></div>
+  </div>
+</div>
+<div id="find-modal" hidden role="dialog" aria-modal="true" aria-labelledby="find-title">
+  <div class="modal-box find-box">
+    <h3 id="find-title">Find &amp; replace</h3>
+    <p class="hint" id="find-scope"></p>
+    <label class="col">Find
+      <input id="find-text" type="text" autocomplete="off" spellcheck="false" placeholder="Text to find" />
+    </label>
+    <label class="col">Replace with
+      <input id="replace-text" type="text" autocomplete="off" spellcheck="false" placeholder="Replacement text" />
+    </label>
+    <div class="find-options">
+      <label class="inline"><input id="find-regex" type="checkbox" /> Regular expression</label>
+      <label class="inline"><input id="find-case" type="checkbox" /> Match case</label>
+    </div>
+    <p class="hint" id="find-status" aria-live="polite"></p>
+    <div class="row">
+      <button id="find-close" type="button">Close</button>
+      <button id="find-replace-all" type="button" class="primary">Replace all</button>
+    </div>
+  </div>
+</div>
+<!-- Text box dialog (spec §9b). A text item is edited here, not on the page: the page
+     stays a pure mapping surface (click = select / move / resize), and the formatting
+     tools live in this dialog's header, next to the text they act on. The box is shown
+     at its real size in PDF points, so the wrap you see is the wrap you get. -->
+<div id="text-modal" hidden>
+  <div class="modal-box text-box-modal">
+    <div class="tm-head">
+      <div class="tm-title">
+        <h3 id="text-modal-title">Text box</h3>
+        <span id="text-modal-size" class="tm-size"></span>
+      </div>
+      <div class="tm-tools">
+        <span id="text-tools" class="tool-group" title="Format the selected text only (with no selection, the next typed characters)">
+          <button id="tt-bold" title="Bold">B</button>
+          <button id="tt-italic" title="Italic"><i>I</i></button>
+          <button id="tt-underline" title="Underline"><u>U</u></button>
+          <label class="inline">A <input id="tt-color" type="color" value="#111111" title="Text color" /></label>
+          <select id="tt-font" title="Font family">
+            <option value="sans">Sans</option>
+            <option value="serif">Serif</option>
+            <option value="mono">Mono</option>
+          </select>
+          <label class="inline">Size <input id="tt-size" type="number" min="4" max="200" step="0.5" title="Font size (selected text, or the next typed characters)" /></label>
+          <label class="inline">Line <input id="tt-line" type="number" min="0.8" max="3" step="0.05" size="3" title="Line spacing for the whole box: a multiple of the font size (default 1.25). Table rows keep their own height" /></label>
+          <select id="tt-align" title="Alignment of the current paragraph / cell">
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+            <option value="center">Center</option>
+            <option value="justify">Justify</option>
+          </select>
+          <select id="tt-dir" title="Text direction">
+            <option value="ltr">LTR</option>
+            <option value="rtl">RTL</option>
+          </select>
+          <span class="sep"></span>
+          <button id="tt-head" title="Toggle heading level">H</button>
+          <button id="tt-ul" title="Bulleted list">•</button>
+          <button id="tt-ol" title="Numbered list">1.</button>
+          <button id="tt-table" title="Insert a table">▦</button>
+        </span>
+        <span id="table-tools" class="tool-group" title="Table options (active cell)" hidden>
+          <label class="inline">Border <input id="tbl-border-color" type="color" value="#333333" title="Table border color" /></label>
+          <label class="inline"><input id="tbl-border-width" type="number" min="0" max="12" step="1" value="1" size="2" title="Border width (pt)" /></label>
+          <button id="tbl-add-row" title="Add row below">+Row</button>
+          <button id="tbl-del-row" title="Delete row">−Row</button>
+          <button id="tbl-add-col" title="Add column right">+Col</button>
+          <button id="tbl-del-col" title="Delete column">−Col</button>
+          <label class="inline">Col w <input id="tbl-col-w" type="number" min="8" step="1" size="3" title="Active column width (pt)" /></label>
+          <label class="inline">Row h <input id="tbl-row-h" type="number" min="8" step="1" size="3" title="Active row height (pt)" /></label>
+          <label class="inline">Table w <input id="tbl-width" type="number" min="20" step="1" size="4" title="Overall table width (pt) — scales all columns" /></label>
+        </span>
+      </div>
+    </div>
+    <div class="tm-stage">
+      <div id="inline-edit" class="inline-edit" contenteditable="true" spellcheck="false" hidden></div>
+    </div>
+    <p class="hint tm-hint">Enter starts a new line, Tab moves between table cells. <b>Done</b> (or <b>Esc</b>) keeps the text, <b>Cancel</b> discards it. This dialog only writes, edits and formats — size the box on the page (its handles, or <b>Resize to text</b> / <b>R</b>).</p>
+    <div class="row">
+      <button id="text-cancel">Cancel</button>
+      <button id="text-done">Done</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

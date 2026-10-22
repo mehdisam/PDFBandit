@@ -1,0 +1,13 @@
+{
+  "name": "pdfbandit",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PDFBandit — Fix/Translate PDFs, your way. (.pmap sidecar editor)",
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "python3 -m http.server 8901",
+    "test": "node --test tools/*.test.mjs",
+    "migrate": "node tools/pmap-migrate.mjs"
+  }
+}
