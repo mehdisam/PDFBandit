@@ -1,0 +1,19 @@
+{
+  "name": "pdfbandit-repo",
+  "version": "1.0.0",
+  "description": "PDFBandit — Fix/Translate PDFs, your way.",
+  "private": true,
+  "homepage": "https://github.com/mehdisam/PDFBandit",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mehdisam/PDFBandit.git"
+  },
+  "scripts": {
+    "test": "node --test pdfbandit/tools/*.test.mjs",
+    "migrate": "node pdfbandit/tools/pmap-migrate.mjs"
+  },
+  "keywords": [],
+  "author": "Mehdi",
+  "license": "Apache-2.0",
+  "type": "commonjs"
+}

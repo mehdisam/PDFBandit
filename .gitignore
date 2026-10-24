@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+doc/
+.wrangler/
+pdfbandit/app/__vendor
+pdfbandit/app/__sess_*.html
+pdfbandit/app/__app.html
+pdfbandit/app/tools
+package.json

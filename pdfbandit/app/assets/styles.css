@@ -1,0 +1,750 @@
+:root {
+  --bg: #f1f1f1;
+  --panel: #ffffff;
+  --panel-2: #fafafa;
+  --fg: #333333;
+  --muted: #767676;
+  --border: #dcdcdc;
+  --border-strong: #c4c4c4;
+  --hover: #ececec;
+  --accent: #2563eb;
+  --accent-soft: #dbe8f7;
+  --accent-soft-hover: #cfe0f5;
+}
+* { box-sizing: border-box; }
+body { margin:0; font:13px/1.4 system-ui,-apple-system,Segoe UI,sans-serif; background:var(--bg); color:var(--fg); height:100vh; display:flex; flex-direction:column; }
+
+/* ---- menu bar ---- */
+#menubar { background:var(--panel); border-bottom:1px solid var(--border); }
+.menubar { display:flex; align-items:center; height:30px; padding:0 6px; user-select:none; background:var(--panel); }
+.menu-title { background:none; border:none; border-radius:4px; color:var(--fg); padding:4px 11px; font:13px/1.2 system-ui,sans-serif; cursor:default; }
+.menu-title:hover { background:var(--hover); }
+.menu-title.active { background:var(--accent-soft); color:#1a1a1a; }
+.menu-panel { position:fixed; z-index:30; min-width:230px; background:var(--panel); border:1px solid var(--border-strong); border-radius:5px; padding:4px 0; box-shadow:0 6px 18px rgba(0,0,0,.18); }
+.menu-panel[hidden] { display:none; }
+.menu-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:none; border:none; border-radius:0; padding:5px 12px; font:13px/1.2 system-ui,sans-serif; color:var(--fg); cursor:default; }
+.menu-item:not(:disabled):hover, .menu-item:not(:disabled):focus { background:var(--accent-soft); color:#1a1a1a; outline:none; }
+.menu-item:disabled { color:#b0b0b0; }
+.mi-check { width:14px; flex:0 0 14px; text-align:center; color:#2e8b57; }
+.menu-item:disabled .mi-check { color:#cfcfcf; }
+.mi-label { flex:1 1 auto; white-space:nowrap; }
+.mi-shortcut { flex:0 0 auto; color:var(--muted); font-size:12px; margin-left:18px; }
+.menu-sep { height:1px; background:var(--border); margin:4px 0; }
+.menu-header { padding:5px 12px 3px; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+
+.menubar-brand { display:inline-flex; align-items:baseline; gap:8px; margin-left:auto; padding:0 6px; color:var(--fg); text-decoration:none; white-space:nowrap; }
+.menubar-brand strong { font-size:14px; letter-spacing:.01em; }
+.menubar-brand span { color:var(--muted); font-size:11.5px; }
+@media (max-width: 1100px) { .menubar-brand span { display:none; } }
+@media (max-width: 520px) { .menubar-brand { display:none; } }
+
+/* ---- toolbar ---- */
+#toolbar { display:flex; align-items:center; gap:6px; padding:5px 10px; background:var(--panel); flex-wrap:nowrap; overflow:hidden; }
+/* Everything in the toolbar keeps its size; only the status text is elastic, and it
+   ellipsises instead of wrapping. Otherwise a long status message squeezes the mode
+   group, whose button labels wrap and make the whole bar (and the canvas) taller. */
+#toolbar > *:not(.status) { flex:0 0 auto; }
+#toolbar button, #toolbar .mode-group button { white-space:nowrap; }
+#toolbar .status { margin-left:auto; flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12.5px; }
+#toolbar #status-progress { display:inline-flex; align-items:center; gap:6px; margin-left:auto; font-size:12.5px; color:var(--muted); }
+#toolbar #status-progress[hidden] { display:none; }
+#toolbar #status-progress progress { width:110px; height:10px; }
+#toolbar #status-progress:not([hidden]) ~ .status { margin-left:8px; }
+/* Contextual tool strip. The height is fixed so that showing/hiding a tool group
+   never reflows the page: while the pointer is down a layout shift would move the
+   PDF canvas under the cursor and drag the region with it (spec §9). */
+#tools-row { display:flex; align-items:center; gap:6px; padding:3px 10px; height:32px; min-height:32px; background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; }
+#tools-row .tool-group { display:flex; align-items:center; gap:6px; }
+#tools-row .tool-subgroup { display:inline-flex; align-items:center; gap:4px; }
+#tools-row .tool-group[hidden], #tools-row .tool-subgroup[hidden] { display:none; }
+/* chrome-ai settings status: available / needs a download / unavailable */
+#set-chromeai-status.ok { color:#1a7f37; }
+#set-chromeai-status.warn { color:#9a6700; }
+#set-chromeai-status.bad { color:#b42318; }
+/* a known instance's URL is shown, not edited */
+#set-endpoint[readonly] { background:transparent; color:var(--muted); }
+.mode-group { display:inline-flex; margin-left:8px; border:1px solid var(--border-strong); border-radius:4px; overflow:hidden; }
+.mode-group button { border:none; border-radius:0; padding:3px 10px; background:var(--panel); color:var(--fg); font-size:12.5px; }
+.mode-group button + button { border-left:1px solid var(--border); }
+.mode-group button.active { background:var(--accent); color:#fff; }
+/* Workflow switcher: intent, not a mode. Two small buttons that stay visible so the user
+   can move between Translate and Improve without losing the map, variants or selection. */
+.lens-switcher { display:inline-flex; margin-left:8px; border:1px solid var(--border-strong); border-radius:4px; overflow:hidden; }
+.lens-switcher button { border:none; border-radius:0; padding:3px 11px; background:var(--panel); color:var(--fg); font-size:12.5px; }
+.lens-switcher button + button { border-left:1px solid var(--border); }
+.lens-switcher button.active { background:var(--accent); color:#fff; }
+body.lens-improve .lens-switcher button[data-lens="improve"] { background:#0f7b5f; border-color:#0f7b5f; }
+body.lens-improve .lens-switcher { border-color:#0f7b5f; }
+/* The translation controls belong to the Translate intent. Improve keeps the same region
+   tools but hides the target-language machinery; extraction/OCR lives in its menu and the
+   contextual "Make this selectable" button. */
+body.lens-improve #lbl-source-lang,
+body.lens-improve #btn-translate-page-text { display:none; }
+body.lens-translate #btn-make-selectable { display:none; }
+#toolbar .coverage { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; margin-left:8px; }
+#toolbar .coverage:empty { display:none; }
+
+button, select, input, textarea { background:var(--panel); color:var(--fg); border:1px solid var(--border-strong); border-radius:4px; padding:3px 8px; font:inherit; }
+button { cursor:pointer; }
+button:not(:disabled):hover { background:#e9f0f9; border-color:#a9c6e8; }
+button:disabled { opacity:.5; cursor:default; }
+.modal-box button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+.modal-box button.primary:not(:disabled):hover { background:#1d4ed8; border-color:#1d4ed8; }
+select:focus, input:focus, textarea:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
+
+/* ---- layout ---- */
+#layout { flex:1; display:flex; min-height:0; }
+#thumbs { width:140px; overflow-y:auto; background:var(--panel-2); border-right:1px solid var(--border); padding:6px; display:flex; flex-direction:column; gap:6px; }
+#thumbs canvas { width:100%; border:2px solid transparent; cursor:pointer; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.12); }
+#thumbs canvas.active { border-color:var(--accent); }
+#stage-wrap { flex:1; overflow:auto; display:flex; justify-content:center; background:#e6e6e6; position:relative; }
+#stage { position:relative; margin:16px; }
+#pdf-canvas, #view-canvas { display:block; box-shadow:0 2px 8px rgba(0,0,0,.18); }
+#pdf-canvas { background:#fff; }
+#view-canvas { position:absolute; left:0; top:0; pointer-events:none; background:transparent; box-shadow:none; }
+#view-canvas[hidden] { display:none; }
+#overlay { position:absolute; left:0; top:0; pointer-events:none; }
+#overlay polygon.region, #overlay circle.handle { pointer-events:auto; }
+
+/* pdf.js text layer (subset of pdf_viewer.css) */
+.textLayer { position:absolute; left:0; top:0; text-align:initial; inset:0; overflow:clip; opacity:1; line-height:1; -webkit-text-size-adjust:none; text-size-adjust:none; forced-color-adjust:none; transform-origin:0 0; caret-color:CanvasText; z-index:0; }
+.textLayer :is(span,br) { color:transparent; position:absolute; white-space:pre; cursor:text; transform-origin:0% 0%; }
+.textLayer ::selection { background:rgba(0 0 255 / 0.25); }
+.textLayer br::selection { background:transparent; }
+.textLayer .endOfContent { display:block; position:absolute; inset:100% 0 0; z-index:0; cursor:default; -webkit-user-select:none; user-select:none; }
+.textLayer.selecting .endOfContent { top:0; }
+
+/* Region fill stays fully transparent in Edit mode (the PDF shows through);
+   the selected region is highlighted with a thicker accent stroke and its
+   picked vertex gets an accent dot. */
+#overlay polygon.region { fill-opacity:0; stroke-width:1; stroke-opacity:.45; cursor:move; }
+#overlay polygon.region:hover { stroke-opacity:.75; }
+#overlay polygon.region.selected { fill-opacity:0; stroke:var(--accent); stroke-width:2; stroke-opacity:1; }
+/* Mask preview: the view canvas paints a deselected region that holds content exactly as
+   Preview mode and the export will (opaque background + its items), so the polygon itself
+   stays transparent here. The class only flips the id label to dark text with a light
+   halo so it stays readable over the mask. */
+#overlay polygon.region.masked + text.rlabel { fill:#1f2937; fill-opacity:.85; stroke:#fff; stroke-opacity:.7; }
+#overlay polygon.region.masked:hover { stroke-opacity:.9; }
+#overlay polygon.region-halo { stroke:var(--accent); stroke-width:6; stroke-opacity:.22; fill:none; }
+/* Invisible grab band along a selected region's outline (spec §9): a ~10 px strip each side
+   that makes "a press near the line means that line" hold even where a neighbouring region's
+   polygon overlaps. Painted over every polygon; the vertex handles sit above it. */
+#overlay polygon.region-band { fill:none; stroke:var(--accent); stroke-width:20; stroke-opacity:0; pointer-events:stroke; vector-effect:non-scaling-stroke; }
+#overlay rect.marquee { fill:rgba(37,99,235,.10); stroke:var(--accent); stroke-width:1.5; stroke-dasharray:2 3; stroke-linecap:round; }
+#overlay circle.handle { fill:#fff; stroke:#1d4ed8; stroke-width:1.5; cursor:grab; r:5; }
+#overlay circle.handle.vertex-selected { fill:var(--accent); stroke:#fff; stroke-width:2.5; r:7; }
+#overlay text.rlabel { font:10px sans-serif; fill:#fff; fill-opacity:.6; paint-order:stroke; stroke:#000; stroke-opacity:.5; stroke-width:2px; pointer-events:none; }
+#overlay polygon.region.selected + text.rlabel { fill-opacity:.95; stroke-opacity:.8; }
+/* Source/selectability status tags (the lens menu or Shift+D). The semantic class
+   is the detector's, the status says whether the region already has digital content or is
+   waiting for OCR. Ids stay visible when the tags are hidden. */
+#overlay text.rlabel .rtag { font-size:9px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; fill-opacity:1; }
+#overlay text.rlabel .rtag-heading { fill:#8ecbff; }
+#overlay text.rlabel .rtag-text { fill:#7ee2a8; }
+#overlay text.rlabel .rtag-awaiting-ocr { fill:#ff9a62; }
+#overlay text.rlabel .rtag-digital { fill:#c8b6ff; }
+/* Locked region: the polygon is frozen (dashed, muted) but its content stays editable.
+   It can only be selected, never dragged, so it never shows the region's move cursor. */
+#overlay polygon.region.locked { stroke:var(--muted); stroke-opacity:.7; stroke-dasharray:5 3; cursor:pointer; }
+#overlay polygon.region.locked:hover { stroke-opacity:.9; }
+#overlay polygon.region.locked.selected { stroke:var(--accent); stroke-opacity:1; stroke-width:2; stroke-dasharray:5 3; cursor:pointer; }
+/* An untouched figure proposal (spec 1.5 §10a): dashed and slightly warmer than the
+   ordinary text proposals, so image detection is visible without a legend. Edits clear the
+   provenance and the polygon returns to the normal solid outline. */
+#overlay polygon.region.detected-image { stroke:#b45309; stroke-opacity:.7; stroke-dasharray:3 3; }
+#overlay polygon.region.detected-image:hover { stroke-opacity:.95; }
+#overlay polygon.region.detected-image.selected { stroke:var(--accent); stroke-opacity:1; stroke-width:2; stroke-dasharray:3 3; }
+/* Content clipped by the region's own polygon: every item is drawn only where the polygon
+   is, so a box that overhangs it loses whatever sticks out — "Resize to text" grows the box
+   past the polygon rather than crop the text, and the region goes orange so the crop the
+   polygon causes is never silent (spec §9b). Fill only, so a selected (accent) or locked
+   (dashed) region keeps its outline. */
+#overlay polygon.region.clip-warn { fill:#f59e0b; fill-opacity:.28; }
+#overlay polygon.region.clip-warn:hover { fill-opacity:.38; }
+/* Content mode: the polygon is a read-only outline (spec §9a) — a press merely selects the
+   region that will receive the items, so the outline must not claim the region's `move`
+   cursor. Alt is the one exception, and the app sets that cursor while it is held. */
+body.mode-content #overlay polygon.region,
+body.mode-content #overlay polygon.region.locked,
+body.mode-content #overlay polygon.region.selected { cursor:pointer; }
+#overlay .lock-badge { pointer-events:none; }
+#overlay .lock-badge .lock-body { fill:#e8b23a; stroke:#7a5c10; stroke-width:.7; }
+#overlay .lock-badge .lock-shackle { fill:none; stroke:#7a5c10; stroke-width:1.3; }
+#overlay rect.item-box { fill:rgba(37,99,235,.08); stroke:#2563eb; stroke-width:1; stroke-dasharray:4 3; cursor:move; }
+#overlay rect.item-box.item-selected { fill:rgba(37,99,235,.16); stroke-width:1.5; stroke-dasharray:none; }
+#overlay text.item-tag { font:9px sans-serif; fill:#1d4ed8; pointer-events:none; }
+/* An item's corner handles are squares in dark grey, deliberately unlike a region's round
+   blue vertices (spec §9b), and each corner carries its own resize cursor. */
+#overlay rect.item-handle { fill:#fff; stroke:#555; stroke-width:1.5; }
+#overlay rect.item-handle[data-corner="nw"], #overlay rect.item-handle[data-corner="se"] { cursor:nwse-resize; }
+#overlay rect.item-handle[data-corner="ne"], #overlay rect.item-handle[data-corner="sw"] { cursor:nesw-resize; }
+/* Text box dialog (spec §9b): the editor is a free-form contenteditable — as big as the
+   dialog, showing the item's real font size in points (1 pt = 1 px) with no magnification.
+   It is deliberately not the box: the box's size is set on the page (its handles, or
+   Resize to text / R), so the dialog never has to be large enough for the box, and the
+   wrapping here is the dialog's own. It lives in the modal, never on the page. */
+.inline-edit { box-sizing:border-box; flex:1 1 auto; min-height:0; white-space:normal; word-wrap:break-word; overflow:auto; padding:8px 10px; margin:0; line-height:1.25; border:0; outline:1px solid var(--accent); border-radius:2px; background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.14); }
+.inline-edit .rt-line:empty::after { content:'\200b'; }
+.inline-edit[hidden] { display:none; }
+/* block document: paragraphs, headings, lists, tables inside the text item */
+.inline-edit .rt-blk { min-height:1em; }
+.inline-edit .rt-head .rt-line { font-weight:700; }
+.inline-edit .rt-list { margin:0; }
+.inline-edit .rt-li { display:flex; align-items:flex-start; gap:4px; }
+.inline-edit .rt-li-mark { flex:0 0 auto; min-width:1.2em; color:#555; user-select:none; }
+.inline-edit .rt-li-body { flex:1 1 auto; min-width:1px; }
+.inline-edit .rt-table-el { border-collapse:collapse; table-layout:fixed; }
+.inline-edit .rt-cell { vertical-align:top; padding:2px 4px; min-width:8px; overflow-wrap:anywhere; position:relative; }
+.inline-edit .rt-colgrip { position:absolute; top:0; right:-3px; width:6px; height:100%; cursor:col-resize; z-index:2; }
+.inline-edit .rt-colgrip:hover { background:rgba(37,99,235,.5); }
+.inline-edit .rt-rowgrip { position:absolute; left:0; bottom:-3px; width:100%; height:6px; cursor:row-resize; z-index:2; }
+.inline-edit .rt-rowgrip:hover { background:rgba(37,99,235,.5); }
+.inline-edit .rt-cell:focus, .inline-edit .rt-blk:focus { outline:1px solid var(--accent-soft); }
+.inline-edit [data-pending] { background:rgba(37,99,235,.10); }
+.tool-group .sep { width:1px; align-self:stretch; background:var(--border); margin:0 2px; }
+.tool-group { display:inline-flex; align-items:center; gap:4px; margin-left:8px; padding-left:8px; border-left:1px solid var(--border); flex-wrap:wrap; }
+.tool-group[hidden] { display:none; }
+.tool-group button { min-width:26px; padding:3px 6px; }
+.tool-group button.active { background:var(--accent); color:#fff; }
+.tool-group input[type=color] { width:26px; height:22px; padding:0; }
+.tool-group .inline { display:inline-flex; align-items:center; gap:2px; color:var(--muted); }
+#draw-hint { position:absolute; top:8px; left:50%; transform:translateX(-50%); z-index:8; pointer-events:none; background:rgba(0,0,0,.75); color:#fff; padding:4px 10px; border-radius:4px; }
+
+/* ---- right panel ---- */
+#props { width:280px; background:var(--panel); border-left:1px solid var(--border); padding:12px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; }
+#props h3 { margin:2px 0 4px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+#props label { display:flex; flex-direction:column; gap:3px; margin-bottom:6px; }
+/* A label's own display rule would otherwise beat the browser's [hidden] styling. */
+#props label[hidden], .modal-box label[hidden] { display:none; }
+#props .hint { color:var(--muted); font-size:12px; }
+#props .row { display:flex; gap:6px; }
+#props label.inline { flex-direction:row; align-items:center; gap:6px; }
+#props button { cursor:pointer; }
+/* Keep the panel one column wide: a number input's default width would otherwise push
+   the item editor (and the whole panel) into a horizontal scroll. */
+#props input, #props select { max-width:100%; box-sizing:border-box; }
+#props #f-item-source { width:100%; }
+#props .row > label { min-width:0; }
+#props .items-list { display:flex; flex-direction:column; gap:4px; margin-bottom:6px; }#props .items-list button { text-align:left; display:flex; gap:6px; align-items:baseline; }
+#props .items-list button .tag { color:var(--muted); font-size:11px; text-transform:uppercase; flex:0 0 auto; }
+#props .items-list button .val { flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#props .items-list button .badge { flex:0 0 auto; font-size:10px; line-height:1.4; padding:0 4px; border-radius:3px; text-transform:uppercase; background:var(--accent-soft); color:var(--accent); border:1px solid var(--accent); }
+/* Overlength: the amber of the canvas overflow marker, so the list and the page agree. */
+#props .items-list button .badge.badge-overlength { background:#fff3d6; color:#8a5a00; border-color:#d97706; }
+/* Awaiting OCR (spec 1.5 §20): a runtime-only editing aid, shown in the region properties
+   while the source has no usable selectable text under the region (a scan, a raster figure,
+   or broken glyphs). Muted red to read as "action needed" without competing with the
+   overlength amber. */
+#props #f-ocr { display:inline-block; margin:2px 0 6px; font-size:10px; line-height:1.6; padding:0 6px; border-radius:3px; text-transform:uppercase; letter-spacing:.04em; background:#fde8e8; color:#9b1c1c; border:1px solid #dc2626; }
+#props #f-ocr[hidden] { display:none; }
+/* Detected class (spec 1.5 §10a): provenance, not a user field. Neutral blue for text and
+   headings, amber for a figure so the two proposals read differently at a glance. */
+#props #f-kind { display:inline-block; margin:2px 0 6px 4px; font-size:10px; line-height:1.6; padding:0 6px; border-radius:3px; text-transform:uppercase; letter-spacing:.04em; background:var(--accent-soft); color:var(--accent); border:1px solid var(--accent); }
+#props #f-kind[data-kind="image"] { background:#fff3d6; color:#8a5a00; border-color:#d97706; }
+#props #f-kind[hidden] { display:none; }
+#props .items-list button.active { border-color:var(--accent); background:var(--accent-soft); }
+#props .review-list { display:flex; flex-direction:column; gap:4px; margin-bottom:6px; }
+#props .review-row { display:flex; align-items:baseline; gap:6px; width:100%; text-align:left; padding:4px 6px; border:1px solid var(--border); border-radius:4px; background:var(--panel-2); color:var(--fg); }
+#props .review-row:hover { border-color:var(--accent); background:var(--accent-soft); }
+#props .review-id { flex:0 0 auto; font:11px/1.4 ui-monospace,Menlo,monospace; color:var(--accent); }
+#props .review-text { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+#props .review-count { flex:0 0 auto; min-width:16px; padding:0 4px; border-radius:8px; background:#fff3d6; color:#8a5a00; border:1px solid #d97706; font-size:10px; text-align:center; }
+
+/* ---- tables (help) ---- */
+#help-modal .modal-box { width:min(920px,94vw); max-width:920px; }
+.help-table { width:100%; table-layout:fixed; border-collapse:collapse; margin:6px 0; font-size:12.5px; }
+.help-table td { padding:3px 10px 3px 0; vertical-align:top; overflow-wrap:break-word; }
+.help-table td:first-child { width:24%; white-space:normal; color:var(--accent); font-family:ui-monospace,Menlo,monospace; }
+.help-table td:last-child { width:76%; }
+.help-version { display:inline-block; margin-left:6px; padding-left:8px; border-left:1px solid var(--border); font-size:11.5px; color:var(--muted); }
+.about-box { width:min(560px,94vw); max-width:560px; }
+.about-tagline { margin:0 0 3px; color:var(--accent); font-weight:600; }
+.about-version { margin:0 0 14px; color:var(--muted); font-size:12px; }
+.about-box p { margin:8px 0; }
+
+/* ---- modals ---- */
+#picker-modal, #warn-modal, #settings-modal, #help-modal, #about-modal, #find-modal, #text-modal, #variant-modal, #choice-modal, #app-dialog { position:fixed; inset:0; background:rgba(0,0,0,.32); display:flex; align-items:center; justify-content:center; z-index:40; }
+#picker-modal[hidden], #warn-modal[hidden], #settings-modal[hidden], #help-modal[hidden], #about-modal[hidden], #find-modal[hidden], #text-modal[hidden], #variant-modal[hidden], #choice-modal[hidden], #app-dialog[hidden] { display:none; }
+.modal-box { background:var(--panel); border:1px solid var(--border-strong); padding:18px 20px; border-radius:8px; min-width:340px; max-width:640px; max-height:80vh; overflow:auto; box-shadow:0 12px 40px rgba(0,0,0,.3); }
+/* Re-detection conflict (§21): the two candidate polygons drawn over the page. */
+#choice-preview { display:block; width:100%; max-width:420px; height:auto; margin:10px 0 4px; background:#fff; border:1px solid var(--border-strong); border-radius:6px; }
+#choice-preview[hidden] { display:none; }
+#choice-legend { display:flex; align-items:center; gap:6px; font-size:12px; margin:0 0 4px; }
+#choice-legend[hidden] { display:none; }
+#choice-legend .swatch { width:12px; height:12px; border-radius:2px; border:2px solid; }
+#choice-legend .swatch-existing { border-color:#2563eb; background:rgba(37,99,235,.28); }
+#choice-legend .swatch-proposed { border-color:#d97706; background:rgba(217,119,6,.18); border-style:dashed; }
+.modal-box h3 { margin:0 0 10px; }
+.modal-box .row { margin-top:12px; display:flex; gap:8px; justify-content:flex-end; }
+.modal-box label.col { display:flex; flex-direction:column; gap:3px; margin:8px 0; }
+/* Preferences: Translation Service / OCR Service / Region Detection. Tabs sit on a rule; the selected
+   tab uses the app accent as a bottom border so it reads as a section, not a toolbar. */
+.prefs-box { width:min(660px,94vw); }
+.pref-tabs { display:flex; gap:2px; border-bottom:1px solid var(--border); margin:0 0 12px; overflow-x:auto; }
+.pref-tab { flex:0 0 auto; white-space:nowrap; border:none; border-bottom:2px solid transparent; border-radius:0; background:none; color:var(--muted); padding:6px 10px; font:13px/1.2 system-ui,sans-serif; }
+.pref-tab:not(.active):hover { background:var(--hover); color:var(--fg); border-color:transparent; }
+.pref-tab.active { color:var(--fg); border-bottom-color:var(--accent); font-weight:600; }
+.pref-panel[hidden] { display:none; }
+/* Text box dialog: header (title + the text tools), the free-form editor, actions.
+   The dialog is resizable by the user (spec §9b) and is sized for *editing*: the text area
+   fills it, and the box's own size is set on the page. */
+.text-box-modal { position:fixed; display:flex; flex-direction:column; width:min(680px,94vw); height:min(78vh,600px); min-width:280px; min-height:240px; max-width:96vw; max-height:92vh; overflow:auto; resize:both; cursor:default; }
+.tm-head { display:flex; flex-direction:column; gap:8px; padding-bottom:10px; margin-bottom:12px; border-bottom:1px solid var(--border); }
+.tm-title { display:flex; align-items:baseline; gap:8px; }
+.tm-title h3 { margin:0; }
+.tm-size { color:var(--muted); font-size:12px; }
+.tm-tools { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+.tm-tools .tool-group { margin-left:0; padding-left:0; border-left:none; flex-wrap:wrap; row-gap:6px; }
+.tm-tools .tool-group + .tool-group { border-left:1px solid var(--border); padding-left:8px; }
+/* ---- Ms Word-style formatting ribbon inside the text dialog ---- */
+.tm-tools .tool-group button {
+  min-width:24px; padding:4px 8px; border:1px solid transparent; border-radius:4px;
+  background:var(--panel); color:var(--fg); font:600 12.5px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:4px;
+}
+.tm-tools .tool-group button:hover:not(.active) { background:var(--hover); border-color:var(--border); }
+.tm-tools .tool-group button:active:not(.active) { background:var(--accent-soft); }
+.tm-tools .tool-group button.active {
+  background:var(--accent); border-color:var(--accent); color:#fff;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.18);
+}
+.tm-tools .tool-group button i, .tm-tools .tool-group button u { font-style:normal; text-decoration:none; font-weight:700; }
+.tm-tools .tool-group .sep { width:1px; align-self:stretch; background:var(--border); margin:0 4px; }
+.tm-tools .tool-group label.inline { color:var(--muted); font-size:11.5px; font-weight:500; display:inline-flex; align-items:center; gap:4px; }
+.tm-tools .tool-group label.inline input[type=color] { border:none; border-radius:4px; width:22px; height:20px; padding:0; cursor:pointer; }
+.tm-tools .tool-group select {
+  border:1px solid var(--border); border-radius:4px; padding:1px 6px; background:var(--panel);
+  color:var(--fg); font:500 12px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; cursor:pointer; min-width:70px;
+}
+.tm-tools .tool-group select:hover { border-color:var(--border-strong); }
+.tm-tools .tool-group input[type=number] {
+  border:1px solid var(--border); border-radius:4px; padding:1px 5px; width:42px; background:var(--panel);
+  color:var(--fg); font:500 12px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+.tm-tools .tool-group input[type=number]:hover { border-color:var(--border-strong); }
+/* Font color "A" shows its color as an underline, like Word */
+.tm-tools .tool-group label.inline::before { content:"A"; display:inline-block; font-weight:700; font-size:13px; color:var(--fg); margin-right:2px; }
+.tm-stage { flex:1 1 auto; min-height:80px; overflow:hidden; background:var(--panel-2); border:1px dashed var(--border-strong); border-radius:6px; padding:12px; display:flex; align-items:stretch; }
+/* Reference crop of the page under the box, above the editor. Capped so it never
+   crowds out the text being edited; the dialog itself stays resizable. */
+.tm-source { flex:0 0 auto; margin:0 0 10px; display:flex; flex-direction:column; align-items:center; gap:4px; }
+.tm-source[hidden] { display:none; }
+.tm-source img { display:block; max-width:100%; max-height:150px; object-fit:contain; background:#fff; border:1px solid var(--border); border-radius:4px; }
+.tm-source-cap { color:var(--muted); font-size:11px; line-height:1.4; }
+.tm-hint { color:var(--muted); font-size:12px; margin:10px 0 0; }
+#text-done { background:var(--accent); border-color:var(--accent); color:#fff; }
+#text-done:hover { background:#1d4ed8; }
+#picker-list button { display:block; width:100%; margin:4px 0; text-align:left; }
+
+/* ---- context menu ---- */
+.ctx-menu { position:fixed; z-index:50; background:var(--panel); border:1px solid var(--border-strong); border-radius:6px; padding:4px 0; min-width:180px; box-shadow:0 4px 16px rgba(0,0,0,.2); }
+.ctx-menu button { display:block; width:100%; text-align:left; background:none; border:none; padding:6px 12px; border-radius:0; }
+.ctx-menu button:hover { background:var(--accent-soft); }
+
+/* ---- 2026 visual refresh: align the editor with the public landing page ---- */
+:root {
+  --bg: #eef3f9;
+  --panel: #ffffff;
+  --panel-2: #f8fbff;
+  --fg: #172033;
+  --muted: #5b6577;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --hover: #f1f5f9;
+  --accent: #2563eb;
+  --accent-dark: #1d4ed8;
+  --accent-soft: #dbeafe;
+  --accent-soft-hover: #bfdbfe;
+  --green: #0f7b5f;
+  --soft: #f7faff;
+  --soft-2: #eef4fb;
+  --shadow-sm: 0 1px 2px rgba(23, 32, 51, .05);
+  --shadow: 0 18px 50px rgba(23, 32, 51, .13);
+  --shadow-lg: 0 30px 80px rgba(15, 23, 42, .28);
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 13.5px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: rgba(37, 99, 235, .22); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; background-clip: content-box; }
+
+/* menu bar */
+#menubar {
+  background: rgba(255, 255, 255, .96);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, .02);
+  backdrop-filter: blur(12px);
+}
+.menubar { height: 48px; padding: 0 14px; gap: 2px; }
+.menu-title {
+  padding: 7px 11px;
+  border-radius: 7px;
+  color: #334155;
+  font: 500 13.5px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.menu-title:hover { background: var(--hover); color: var(--fg); }
+.menu-title.active { background: var(--accent-soft); color: var(--accent-dark); }
+.menu-panel {
+  min-width: 240px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.menu-item {
+  padding: 7px 10px;
+  border-radius: 6px;
+  font: 13px/1.25 system-ui, -apple-system, "Segoe UI", sans-serif;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.menu-item:not(:disabled):hover,
+.menu-item:not(:disabled):focus { background: var(--accent-soft); color: var(--accent-dark); }
+.menu-sep { margin: 5px 6px; background: var(--border); }
+.menu-header { padding: 7px 10px 4px; color: #64748b; letter-spacing: .09em; }
+
+.menubar-brand {
+  align-items: center;
+  gap: 9px;
+  margin-left: auto;
+  padding: 0 0 0 16px;
+  border-left: 1px solid var(--border);
+  min-height: 28px;
+}
+.menubar-brand::before {
+  content: "";
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  background: url("./icon.png") center / contain no-repeat;
+  border-radius: 7px;
+}
+.menubar-brand strong { font-size: 15px; font-weight: 750; letter-spacing: -.02em; }
+.menubar-brand span { color: var(--muted); font-size: 11.5px; }
+
+/* command bars */
+#toolbar {
+  padding: 8px 14px;
+  gap: 7px;
+  background: linear-gradient(180deg, #fff 0%, #fbfdff 100%);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
+}
+#zoom-label {
+  min-width: 46px;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+#toolbar .status {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 12px;
+}
+#toolbar .status:empty { display: none; }
+#toolbar .coverage {
+  padding: 4px 9px;
+  border: 1px solid #a7f3d0;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: var(--green);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+#toolbar .coverage:empty { display: none; }
+#toolbar #status-progress progress { accent-color: var(--accent); }
+
+.mode-group,
+.lens-switcher {
+  margin-left: 8px;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: #f1f5f9;
+  overflow: hidden;
+}
+.mode-group button,
+.lens-switcher button {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.15;
+  font-weight: 600;
+  box-shadow: none;
+}
+.mode-group button + button,
+.lens-switcher button + button { border-left: none; }
+.mode-group button:not(:disabled):hover,
+.lens-switcher button:not(:disabled):hover {
+  background: rgba(255, 255, 255, .72);
+  border-color: transparent;
+  color: var(--fg);
+  box-shadow: none;
+}
+.mode-group button.active {
+  background: #fff;
+  color: var(--accent-dark);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
+}
+.lens-switcher button.active {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, .28);
+}
+body.lens-improve .lens-switcher { border-color: #a7f3d0; }
+body.lens-improve .lens-switcher button[data-lens="improve"] {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(15, 123, 95, .24);
+}
+
+/* controls */
+button, select, input, textarea {
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--fg);
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+button { font-weight: 500; }
+button:not(:disabled):hover {
+  background: #f8fbff;
+  border-color: #93b4e6;
+  box-shadow: var(--shadow-sm);
+}
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+button:focus,
+select:focus,
+input:focus,
+textarea:focus {
+  outline: 3px solid rgba(37, 99, 235, .16);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+button:disabled { opacity: .45; }
+.modal-box button.primary { box-shadow: 0 2px 6px rgba(37, 99, 235, .24); }
+.modal-box button.primary:not(:disabled):hover {
+  background: var(--accent-dark);
+  border-color: var(--accent-dark);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, .28);
+}
+
+#tools-row {
+  height: 38px;
+  min-height: 38px;
+  padding: 4px 14px;
+  gap: 8px;
+  background: #f8fbff;
+  border-bottom: 1px solid var(--border);
+}
+#tools-row .tool-group { gap: 6px; margin-left: 0; padding-left: 0; border-left: none; }
+#tools-row .tool-group + .tool-group {
+  margin-left: 4px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+#tools-row .tool-group button { padding: 4px 9px; font-size: 12px; }
+#tools-row .tool-group label.inline { gap: 5px; color: var(--muted); font-size: 12px; }
+#tools-row .tool-group input[type=color] { width: 28px; height: 24px; border-radius: 6px; }
+
+/* workspace */
+#layout { background: var(--bg); }
+#thumbs {
+  width: 168px;
+  padding: 12px;
+  gap: 10px;
+  background: #fbfdff;
+  border-right: 1px solid var(--border);
+}
+#thumbs canvas {
+  border: 2px solid transparent;
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, .08);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+#thumbs canvas:hover { border-color: #bfdbfe; }
+#thumbs canvas.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .14);
+}
+#stage-wrap {
+  background:
+    radial-gradient(900px 420px at 82% -8%, rgba(37, 99, 235, .10), transparent 65%),
+    radial-gradient(700px 380px at 4% 10%, rgba(15, 123, 95, .06), transparent 62%),
+    #eef3f9;
+}
+#stage { margin: 24px; }
+#pdf-canvas { border-radius: 2px; box-shadow: 0 18px 46px rgba(23, 32, 51, .16); }
+#pdf-canvas[hidden] { display: none; }
+#draw-hint {
+  top: 14px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, .88);
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .22);
+  backdrop-filter: blur(6px);
+}
+
+/* properties panel */
+#props {
+  width: 300px;
+  padding: 18px 18px 24px;
+  gap: 10px;
+  background: #fff;
+  border-left: 1px solid var(--border);
+}
+#props h3 {
+  margin: 10px 0 2px;
+  color: #64748b;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .1em;
+}
+#props > h3:first-child { margin-top: 0; }
+#props label { color: var(--muted); font-size: 12px; }
+#props input, #props select, #props button { font-size: 12.5px; }
+#props #props-empty {
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: #f8fbff;
+  color: var(--muted);
+  line-height: 1.65;
+}
+#props .hint { line-height: 1.55; }
+#props .items-list button,
+#props .review-row { border-radius: 8px; }
+#props .review-row { background: #f8fbff; }
+#props .review-row:hover { border-color: var(--accent); background: #eff6ff; }
+
+/* dialogs */
+#picker-modal, #warn-modal, #settings-modal, #help-modal, #about-modal, #find-modal,
+#text-modal, #variant-modal, #choice-modal, #app-dialog {
+  background: rgba(15, 23, 42, .48);
+  backdrop-filter: blur(6px);
+}
+.modal-box {
+  padding: 24px 26px;
+  border: 1px solid rgba(226, 232, 240, .9);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+}
+.modal-box h3 { font-size: 19px; letter-spacing: -.025em; }
+.modal-box p { color: #465166; }
+.modal-box .hint { color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+.modal-box .row { margin-top: 18px; gap: 10px; }
+.find-box { width: min(520px, 94vw); }
+.find-box #find-scope { margin: -2px 0 12px; }
+.find-box input[type="text"] { width: 100%; }
+.find-options { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 10px 0 4px; }
+.find-options label { color: #334155; }
+.find-box #find-status { min-height: 20px; margin: 8px 0 0; }
+.pref-tab { padding: 8px 12px; font-size: 13px; }
+.pref-tab.active { color: var(--accent-dark); border-bottom-color: var(--accent); }
+.tm-head { border-bottom-color: var(--border); }
+.tm-stage { border-radius: 8px; background: #f8fbff; }
+#text-done { box-shadow: 0 2px 6px rgba(37, 99, 235, .24); }
+#text-done:hover { background: var(--accent-dark); }
+#choice-preview { border-radius: 8px; }
+.help-table td:first-child { color: var(--accent-dark); }
+.about-tagline { color: var(--accent); }
+.about-version { color: var(--muted); }
+.ctx-menu {
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.ctx-menu button { padding: 7px 10px; border-radius: 6px; }
+.ctx-menu button:hover { background: var(--accent-soft); color: var(--accent-dark); }
+
+/* ---- app dialog (the confirm/prompt replacement) ---- */
+#app-dialog { z-index: 60; }
+.dialog-box { width: min(480px, 94vw); min-width: 340px; }
+.dialog-box .dialog-text { margin: 0; line-height: 1.55; }
+.dialog-box .dialog-field { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.dialog-box .dialog-field input,
+.dialog-box .dialog-field select { font: inherit; font-size: 13.5px; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 7px; background: #fff; color: var(--fg); }
+.dialog-box .dialog-field select:focus,
+.dialog-box .dialog-field input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dialog-box .dialog-error { margin: 10px 0 0; color: #b91c1c; font-size: 12.5px; font-weight: 600; }
+.dialog-box .dialog-buttons { margin-top: 18px; }
+
+/* ---- next-step guide (top of #props) ---- */
+#next-action {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  background: #f8fbff;
+}
+#next-action h3 { margin: 0 0 8px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent-dark); }
+.next-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.next-steps li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #334155;
+}
+.next-steps li.current { background: #eff6ff; color: #1e3a5f; }
+.next-steps li:not(.current) .next-text { color: var(--muted); }
+.next-text { display: block; width: 100%; }
+/* Guide actions read as links, not toolbar buttons: they sit under the sentence, never
+   squeezed beside it, so a long step can wrap without pushing the action out of the panel. */
+.next-steps button {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.next-steps button:hover { color: #0f3fa8; }
+.next-steps li.current button:hover { color: #0f3fa8; }

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy Policy — PDFBandit</title>
+<meta name="description" content="How PDFBandit handles PDFs, browser storage, translation providers, OCR, and third-party requests." />
+<link rel="icon" href="./favicon.ico" sizes="any" />
+<link rel="icon" href="./assets/icon.png" type="image/png" sizes="any" />
+<link rel="apple-touch-icon" href="./assets/icon.png" />
+<link rel="stylesheet" href="./assets/site.css" />
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="./index.html" aria-label="PDFBandit home">
+      <img src="./assets/icon.png" alt="" />
+      <span><strong>PDFBandit</strong><small>Fix/Translate PDFs, your way.</small></span>
+    </a>
+    <nav class="nav" aria-label="Main navigation">
+      <a class="nav-hide-sm" href="./index.html#features">Features</a>
+      <a class="nav-hide-sm" href="./index.html#how">How it works</a>
+      <a href="./privacy.html">Privacy</a>
+      <a href="./terms.html">Terms</a>
+      <a class="nav-github" href="https://github.com/mehdisam/PDFBandit">GitHub</a>
+      <a class="btn btn-primary" href="./app/">Open PDFBandit</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="legal-hero">
+    <div class="wrap">
+      <h1>Privacy Policy</h1>
+      <p>Effective October 22, 2026 · PDFBandit</p>
+    </div>
+  </section>
+  <article class="wrap legal">
+    <p class="note">The short version: PDFBandit does not upload your PDF to a PDFBandit server. The document, map, and variants are processed and stored in your browser. Text you choose to translate may be sent to the translation provider you select.</p>
+
+    <h2>1. What PDFBandit is</h2>
+    <p>PDFBandit is a browser-based PDF editor for mapping pages, translating text, reconstructing content, and creating selectable text layers. It is a static web application. There is no PDFBandit account system and no PDFBandit backend that receives your document.</p>
+
+    <h2>2. Your PDF and project data</h2>
+    <p>When you open a PDF, the file is read locally by your browser. Region maps, text items, images, and content variants are kept in browser storage so the session can survive a refresh. They are not sent to us.</p>
+    <p>You can remove the browser copy at any time with <strong>File ▸ Forget saved session</strong> or by clearing site data in your browser settings. Exported files are written by your browser to the location you choose.</p>
+
+    <h2>3. Browser storage</h2>
+    <p>PDFBandit uses browser storage, including IndexedDB and localStorage, for:</p>
+    <ul>
+      <li>the open PDF and its session state;</li>
+      <li>region maps and content variants;</li>
+      <li>preferences such as language, OCR, and translation settings.</li>
+    </ul>
+    <p>This storage is origin-specific. It remains on your device until you clear it, use the forget-session command, or your browser removes it. PDFBandit does not use advertising cookies or sell data.</p>
+
+    <h2>4. Translation providers</h2>
+    <p>Translation is optional. When you translate text, the selected text is sent to the provider you choose:</p>
+    <ul>
+      <li><strong>Chrome on-device translation</strong> runs locally in a supported Chrome browser; text is not sent to a remote translation service.</li>
+      <li><strong>LibreTranslate or a custom endpoint</strong> receives the text you submit, and possibly supporting language parameters, in order to return a translation. That provider's own privacy policy and retention practices apply.</li>
+      <li><strong>Manual / external</strong> workflows leave translation to tools you operate yourself.</li>
+    </ul>
+    <p>Do not translate confidential text through a third-party server unless you are comfortable with that provider's handling of it. PDFBandit does not control those servers.</p>
+
+    <h2>5. OCR and detection</h2>
+    <p>OCR is performed in your browser with Tesseract.js. OCR language data and the engine may be downloaded from a public CDN on first use and cached by your browser. Text recognition and detection results stay local; PDFBandit does not receive the page images or recognized text.</p>
+
+    <h2>6. Third-party requests</h2>
+    <p>The app loads open-source libraries from public CDNs and may contact the translation endpoint you select. Those requests necessarily expose standard technical information such as your IP address, browser type, and the requested URL to the relevant provider. PDFBandit does not include analytics, advertising, or behavioral tracking.</p>
+
+    <h2>7. Data retention</h2>
+    <p>We do not retain a copy of your document or project because we do not receive one. Local browser storage remains under your control. Third-party translation providers may retain submitted text according to their own policies.</p>
+
+    <h2>8. Security</h2>
+    <p>PDFBandit is served over HTTPS in production. Local-first processing reduces the amount of document data that leaves your device, but no browser application can guarantee absolute security. Keep your browser and operating system updated, and avoid opening untrusted PDFs.</p>
+
+    <h2>9. Children</h2>
+    <p>PDFBandit is a general-purpose document tool and is not directed at children under 13. Do not use it to process a child's personal information without appropriate consent.</p>
+
+    <h2>10. Changes</h2>
+    <p>We may update this policy as the app changes. The effective date at the top of this page will change when we do. Material changes will be reflected in the public repository and, where appropriate, in the app.</p>
+
+    <h2>11. Contact</h2>
+    <p>For privacy questions, open a thread in <a href="https://github.com/mehdisam/PDFBandit/discussions/">GitHub Discussions</a> or use the contact details in the repository profile. Please do not post confidential documents in a public issue or discussion.</p>
+  </article>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-bottom" style="margin-top:0;border-top:0;padding-top:0">
+      <span>© 2026 PDFBandit. <a href="./index.html">Home</a> · <a href="./terms.html">Terms of Use</a></span>
+      <span><a href="./LICENSE">Apache-2.0</a> · <a href="https://github.com/mehdisam/PDFBandit">GitHub</a> · <a href="https://github.com/mehdisam/PDFBandit/discussions/">Discussions</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
