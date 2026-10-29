@@ -4,7 +4,7 @@ import { Overlay } from './overlay/region_item.js';
 import { ToolController, draftValid } from './editor/tools.js';
 import { History } from './editor/history.js';
 import { ensurePage, getPage, touch as touchMap, syncIdCounter } from './model/document.js';
-import { createRegion, regionHasContent, regionIsMasked, contentText, firstTextItem, createTextItem, createImageItem, itemAbsBox, normalizeStyle, DEFAULT_BACKGROUND, itemBlocks, blocksText, itemText, normalizeBlocks, blocksFromValue, newTableBlock, normalizeCell, charStyles, DEFAULT_TABLE_BORDER, DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, scaleTextItem, isRegionLocked, DEFAULT_LINE_HEIGHT, LINE_HEIGHT_MIN, LINE_HEIGHT_MAX, lineHeightOf } from './model/region.js';
+import { createRegion, regionHasContent, regionIsMasked, isDefaultBackground, contentText, firstTextItem, createTextItem, createImageItem, itemAbsBox, normalizeStyle, itemBlocks, blocksText, itemText, normalizeBlocks, blocksFromValue, newTableBlock, normalizeCell, charStyles, DEFAULT_TABLE_BORDER, DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, scaleTextItem, isRegionLocked, DEFAULT_LINE_HEIGHT, LINE_HEIGHT_MIN, LINE_HEIGHT_MAX, lineHeightOf, normalizeRegion, DEFAULT_BACKGROUND, DEFAULT_STYLE } from './model/region.js';
 import { applyFormatToRuns, FONT_CSS, spanCss } from './model/richtext.js';
 import { compileFind, countInTextItem, replaceInTextItem } from './model/findreplace.js';
 import { blocksToHtml, htmlToBlocks, flowBase } from './model/blocks.js';
@@ -12,9 +12,9 @@ import { clipboardToBlocks } from './import/clipboard.js';
 import { bboxOf, polygonIsValid, pointInPolygon, regionRings, regionPoints, regionBBox, ringsBBox, geometryWithRings, rectInsideRings } from './model/geometry.js';
 import { detectionFingerprint, isUntouchedAuto, clearDetection, refreshDetectedType, pairProposals, unmatchedAutoIds } from './model/detection.js';
 import { sha256Hex } from './storage/hash.js';
-import { serializeMap, parseMap, downloadText, matchSidecars } from './storage/pmap.js';
+import { serializeMap, parseMap, matchSidecars } from './storage/pmap.js';
 import { saveSessionPdf, loadSessionPdf, saveSessionProject, loadSessionMap, loadSessionContent, clearSession } from './storage/session.js';
-import { parseContent, serializeContent, resolveProject, createEmptyProject, emptyContentVariant, matchContentFiles, isMapFileName, isContentFileName, defaultMapName, defaultContentName } from './storage/content-file.js';
+import { parseContent, serializeContent, resolveProject, createMap, emptyContentVariant, matchContentFiles, isMapFileName, isContentFileName, defaultMapName, defaultContentName } from './storage/content-file.js';
 import { splitProject, detectFileKind } from './storage/project-migrate.js';
 import { unionRings, splitPolygonByLine, growRings } from './geometry-ops.js';
 import { renderView, measureTextItem, itemOverflows } from './viewmode.js';
@@ -26,179 +26,213 @@ import { makeTranslationService, translationProviders, isLibreTranslateProvider,
 import { chromeAiStatus, chromeAiAvailability, cancelChromeAiDownload, isChromeAiLanguage } from './services/translate_chromeai.js';
 import { createMenubar } from './ui/menubar.js';
 import { appDialog, confirmDialog, promptValue, promptSelect } from './ui/dialog.js';
+import { mainMenuItems } from './ui/menu.js';
 
 const $ = (id) => document.getElementById(id);
-const els = {
-  pdfCanvas: $('pdf-canvas'), viewCanvas: $('view-canvas'), svg: $('overlay'),
-  textLayer: $('textLayer'), stage: $('stage'), stageWrap: $('stage-wrap'), inlineEdit: $('inline-edit'),
-  textModal: $('text-modal'),
-  textSource: $('text-modal-source'), textSourceImg: $('text-modal-source-img'),
-  textDone: $('text-done'), textCancel: $('text-cancel'),
-  thumbs: $('thumbs'), zoomLabel: $('zoom-label'), status: $('status-msg'),
-  filePdf: $('file-pdf'), filePmap: $('file-pmap'), fileItemImage: $('file-item-image'),
-  propsEmpty: $('props-empty'), propsForm: $('props-form'),
-  fId: $('f-id'), fBg: $('f-bg'), fOcr: $('f-ocr'), fKind: $('f-kind'),
-  regionTools: $('region-tools'), regionAddTools: $('region-add-tools'), imageTools: $('image-tools'),
-  itemTools: $('item-tools'),
-  btnAddText: $('btn-add-text'), btnAddImage: $('btn-add-image'),
-  btnItemFitText: $('btn-item-fit-text'), btnItemFront: $('btn-item-front'),
-  btnItemBack: $('btn-item-back'), btnItemDelete: $('btn-item-delete'),
-  textTools: $('text-tools'), ttBold: $('tt-bold'), ttItalic: $('tt-italic'),
-  ttUnderline: $('tt-underline'), ttColor: $('tt-color'), ttFont: $('tt-font'),
-  ttSize: $('tt-size'), ttAlign: $('tt-align'), ttDir: $('tt-dir'), ttLine: $('tt-line'),
-  itemsList: $('items-list'), itemEditor: $('item-editor'),
-  tableTools: $('table-tools'),
-  tblBorderColor: $('tbl-border-color'), tblBorderWidth: $('tbl-border-width'),
-  tblColW: $('tbl-col-w'), tblRowH: $('tbl-row-h'), tblWidth: $('tbl-width'),
-  ttTable: $('tt-table'), ttUl: $('tt-ul'), ttOl: $('tt-ol'), ttHead: $('tt-head'),
-  fItemSource: $('f-item-source'),
-  fItemFit: $('f-item-fit'),
-  mapInfo: $('map-info'),
-  fTargetLang: $('f-target-lang'),
-  fSourceLang: $('f-source-lang'),
-  dlProgress: $('dl-progress'),
-  dlProgressLabel: $('dl-progress-label'),
-  statusProgress: $('status-progress'),
-  statusCoverage: $('status-coverage'),
-  lensSwitcher: $('lens-switcher'),
-  menubar: $('menubar'),
-  btnMakeSelectable: $('btn-make-selectable'),
-  reviewSection: $('review-section'),
-  reviewHeading: $('review-heading'),
-  reviewList: $('review-list'),
-  findModal: $('find-modal'), findScope: $('find-scope'), findText: $('find-text'),
-  replaceText: $('replace-text'), findRegex: $('find-regex'), findCase: $('find-case'),
-  findStatus: $('find-status'), findReplaceAll: $('find-replace-all'), findClose: $('find-close'),
-};
 
-// An automatically created text box is inset from its region's edge by this many PDF
-// points, so the first/last line never sits flush against the mask boundary. The value
-// is editable in Preferences settings (0 = flush with the region).
-const DEFAULT_TEXT_PADDING = 4;
-// Re-detection overlap threshold (spec 1.5 §21): the IoU at or above which a proposal and an
-// existing region are treated as the same block and reviewed. Editable in Preferences…; the
-// dialog's input is the same 0.30…0.95 range, in 0.05 steps.
-const DEFAULT_DETECT_OVERLAP = 0.5;
+// Lazy-loaded modules
+let JSZipModule = null;
+async function getJSZip() {
+  if (!JSZipModule) {
+    JSZipModule = (await import('jszip')).default;
+  }
+  return JSZipModule;
+}
 
+// App context — replaces all the file-scope S, els, M, and constants
+import {
+  els, appState, moduleState, viewer, stage, history,
+  LANGUAGES,
+  DEFAULT_TEXT_PADDING, DEFAULT_DETECT_OVERLAP,
+  FIT_MIN_SIZE, FIT_SIZE_STEP, FIT_WIDTH_SAMPLES, CLIP_WARN_TOL,
+  MODE_ORDER, EDIT_MODES, isEditMode, inRegion, inContent,
+  initEls
+} from './app.js';
+
+// Re-export functions from model/region.js and model/detection.js for background.js
+export { DEFAULT_BACKGROUND, isRegionLocked } from './model/region.js';
+export { clearDetection } from './model/detection.js';
+export { getPage } from './model/document.js';
+export { history } from './app.js';
+
+// These are defined in main.js - re-export for background.js, menu.js, keyboard.js, find-replace.js
+export { detectionSnapshot, restoreDetection, regionById, selectedRegions, regionsUnderPoint, stagePdfPoint };
+export { saveProjectNow };
+export { armPolygon, closePdf, newRegionFile, exportProjectPart, promptNewContentVariant, openSettings };
+export { selectAll, toggleLockSelected, mergeSelected, resizeAllTextInPage, deleteSelection, startSplit };
+export { detectRegionsOnPage, detectRegionsAllPages, toggleDetectExtract, detectExtract };
+export { extractSelectedContent, translateFromPageText, toggleDigitalVersion, selectTextRegionsWithoutContent };
+export { setMode, toggleOverlay, setZoom, fitZoom, openHelp, openAbout, openFindReplace, closeFindReplace, commitInlineEditor, cycleMode, ensureContentFile };
+export { contentIsImprove, pageTextItemCount, inRegion, inContent, isEditMode, gotoPage, gotoPagePrompt, currentRegion, currentRegions };
+export { addTextItem };
+export { langLabel, digitalSourceState, touchMap as touch, refreshChrome };
+export { workflowCopy, sourceLangValue, textPadding, detectOverlap, detectTier, cvEngine, ocrEngine, ocrEnabled };
+export { defaultFont, defaultSize, defaultLineHeight };
+export { clampPadding, clampDetectOverlap, clampDetectTier, clampCvEngine, clampOcrEngine };
+export { loadSettings, saveSettings, setEndpointFor };
+export { translationProviders };
+export { doExport };
+export function rerender() { renderCurrent(); }
+export function setStatus(t, type = 'info') {
+  const toolbarStatus = els.status;
+  const bar2Status = els.statusBar2;
+  
+  function applyType(el) {
+    if (!el) return;
+    el.textContent = t;
+    el.dataset.type = type;
+    el.classList.remove('status-error', 'status-warning', 'status-info', 'status-success');
+    if (type === 'error') el.classList.add('status-error');
+    else if (type === 'warning') el.classList.add('status-warning');
+    else if (type === 'success') el.classList.add('status-success');
+    else el.classList.add('status-info');
+  }
+  
+  applyType(toolbarStatus);
+  applyType(bar2Status);
+}
+
+// Background color picker & coloring mode
+import { initBackgroundPicker, toggleColoringMode, backgroundButtonVisible, openBackgroundPicker, startEyedropper, cancelEyedropper } from './editor/background.js';
+
+// Keyboard shortcuts
+import { initKeyboardShortcuts, initColoringClickHandler } from './ui/keyboard.js';
+
+// Find & replace
+import { initFindReplace } from './ui/find-replace.js';
+
+// Settings
+import { initSettings, defaultFont, defaultSize, defaultLineHeight } from './settings.js';
+
+// Initialize DOM element references
+initEls();
+
+// Initialize keyboard handlers
+initKeyboardShortcuts();
+initColoringClickHandler();
+
+// Initialize find & replace
+initFindReplace();
+
+// Initialize settings
+initSettings();
+
+// Load settings from localStorage
 const settings = loadSettings();
+export { settings };
 
-// Languages offered by the region language dropdown (Translate's destination,
-// or Improve's source).
-const LANGUAGES = [
-  ['en','English'], ['ar','Arabic'], ['az','Azerbaijani'], ['bg','Bulgarian'], ['bn','Bengali'],
-  ['ca','Catalan'], ['cs','Czech'], ['da','Danish'], ['de','German'], ['el','Greek'],
-  ['es','Spanish'], ['et','Estonian'], ['fa','Persian'], ['fi','Finnish'], ['fr','French'],
-  ['ga','Irish'], ['he','Hebrew'], ['hi','Hindi'], ['hu','Hungarian'], ['id','Indonesian'],
-  ['it','Italian'], ['ja','Japanese'], ['ko','Korean'], ['lt','Lithuanian'], ['lv','Latvian'],
-  ['ms','Malay'], ['nb','Norwegian'], ['nl','Dutch'], ['pl','Polish'], ['pt','Portuguese'],
-  ['ro','Romanian'], ['ru','Russian'], ['sk','Slovak'], ['sl','Slovenian'], ['sq','Albanian'],
-  ['sr','Serbian'], ['sv','Swedish'], ['th','Thai'], ['tr','Turkish'], ['uk','Ukrainian'],
-  ['ur','Urdu'], ['vi','Vietnamese'], ['zh','Chinese'],
-];
+// The content variant's source/destination language defines the workflow:
+//   source === destination → improve (make the PDF selectable/searchable)
+//   source !== destination → translate (source language → target language)
+// There is no separate lens concept — the content file is the source of truth.
+function langLabel(contentVariant) {
+  const meta = contentVariant && (contentVariant.sourceLanguage !== undefined ? contentVariant : contentVariant.meta);
+  if (!meta) return '?';
+  const src = String(meta.sourceLanguage || '').toLowerCase();
+  const dst = String(meta.destinationLanguage || '').toLowerCase();
+  return src === dst ? src : `${src} → ${dst}`;
+}
+function contentIsImprove() {
+  const content = appState.content;
+  return !!content && String(content.sourceLanguage || '').toLowerCase() === String(content.destinationLanguage || '').toLowerCase();
+}
+function contentIsTranslate() {
+  return !contentIsImprove();
+}
+// User-facing labels derived from the active variant's workflow.
+function workflowLabel() {
+  return contentIsImprove() ? 'Improve' : 'Translate';
+}
+function workflowSourceLabel() {
+  return contentIsImprove() ? 'Selectable text' : 'Source text';
+}
+function workflowMissingLabel() {
+  return contentIsImprove() ? 'not selectable yet' : 'source text not readable';
+}
+function workflowFilledLabel() {
+  return contentIsImprove() ? 'selectable' : 'has source text';
+}
+function workflowMissingTag() {
+  return contentIsImprove() ? 'not selectable yet' : 'source text not readable';
+}
+function workflowActionLabel() {
+  return contentIsImprove() ? 'Make this selectable' : 'Extract source text';
+}
+function workflowActionPast() {
+  return contentIsImprove() ? 'Made selectable' : 'Extracted';
+}
+function workflowOcrAction() {
+  return 'Read with OCR';
+}
+function workflowReviewHeading() {
+  return contentIsImprove() ? 'Confirm extracted text' : 'Confirm translations';
+}
+function workflowReviewEmpty() {
+  return contentIsImprove() ? 'No extracted text pending review on this page.' : 'No translations pending review on this page.';
+}
+function workflowSelectMissing() {
+  return contentIsImprove() ? 'Select regions not yet selectable' : 'Select regions without source text';
+}
+function workflowNoMissing() {
+  return contentIsImprove() ? 'Every text region on this page is already selectable.' : 'No text regions without source text on this page.';
+}
+function workflowSelectedMissing(n) {
+  return `${n} text region${n === 1 ? '' : 's'} ${contentIsImprove() ? 'not yet selectable' : 'without source text'} selected.`;
+}
 
-// The two workflows are intents, not data states. They use the same engine and the same
-// variants; only the framing, entry points and default variant change. Every user-facing
-// string that differs by lens lives here so the switch cannot leave a stale label behind.
-const LENS_COPY = {
-  translate: {
-    label: 'Translate',
-    sourceVariant: 'Source text',
-    missing: 'source text not readable',
-    filledTag: 'has source text',
-    missingTag: 'source text not readable',
-    selectedAction: 'Extract source text',
-    pageAction: 'Extract source text on this page',
-    allAction: 'Extract source text on all pages',
-    showStatus: 'Show source-text status',
-    selectMissing: 'Select regions without source text',
-    noMissing: 'No text regions without source text on this page.',
-    selectedMissing: (n) => `${n} text region${n === 1 ? '' : 's'} without source text selected.`,
-    reviewHeading: 'Confirm translations',
-    reviewEmpty: 'No translations pending review on this page.',
-    prefsTab: 'translation',
-    actionLabel: 'Extract source text',
-    actionPast: 'Extracted',
-    ocrAction: 'Read with OCR',
-  },
-  improve: {
-    label: 'Improve',
-    sourceVariant: 'Selectable text',
-    missing: 'not selectable yet',
-    filledTag: 'selectable',
-    missingTag: 'not selectable yet',
-    selectedAction: 'Make this selectable',
-    pageAction: 'Make this selectable on this page',
-    allAction: 'Make this selectable on all pages',
-    showStatus: 'Show selectability status',
-    selectMissing: 'Select regions not yet selectable',
-    noMissing: 'Every text region on this page is already selectable.',
-    selectedMissing: (n) => `${n} text region${n === 1 ? '' : 's'} not yet selectable selected.`,
-    reviewHeading: 'Confirm extracted text',
-    reviewEmpty: 'No extracted text pending review on this page.',
-    prefsTab: 'ocr',
-    actionLabel: 'Make this selectable',
-    actionPast: 'Made selectable',
-    ocrAction: 'Read with OCR',
-  },
-};
-const lensCopy = () => LENS_COPY[S.lens] || LENS_COPY.translate;
+// Workflow copy derived from the active variant's source/destination languages.
+// Mirrors the old LENS_COPY shape so callers can keep using .label, .missing, etc.
+function workflowCopy() {
+  return contentIsImprove()
+    ? {
+        label: 'Improve',
+        sourceVariant: 'Selectable text',
+        missing: 'not selectable yet',
+        filledTag: 'selectable',
+        missingTag: 'not selectable yet',
+        selectedAction: 'Make this selectable',
+        pageAction: 'Make this selectable on this page',
+        allAction: 'Make this selectable on all pages',
+        showStatus: 'Show selectability status',
+        selectMissing: 'Select regions not yet selectable',
+        noMissing: 'Every text region on this page is already selectable.',
+        selectedMissing: (n) => `${n} text region${n === 1 ? '' : 's'} not yet selectable selected.`,
+        reviewHeading: 'Confirm extracted text',
+        reviewEmpty: 'No extracted text pending review on this page.',
+        actionLabel: 'Make this selectable',
+        actionPast: 'Made selectable',
+        ocrAction: 'Read with OCR',
+        prefsTab: 'ocr',
+      }
+    : {
+        label: 'Translate',
+        sourceVariant: 'Source text',
+        missing: 'source text not readable',
+        filledTag: 'has source text',
+        missingTag: 'source text not readable',
+        selectedAction: 'Extract source text',
+        pageAction: 'Extract source text on this page',
+        allAction: 'Extract source text on all pages',
+        showStatus: 'Show source-text status',
+        selectMissing: 'Select regions without source text',
+        noMissing: 'No text regions without source text on this page.',
+        selectedMissing: (n) => `${n} text region${n === 1 ? '' : 's'} without source text selected.`,
+        reviewHeading: 'Confirm translations',
+        reviewEmpty: 'No translations pending review on this page.',
+        actionLabel: 'Extract source text',
+        actionPast: 'Extracted',
+        ocrAction: 'Read with OCR',
+        prefsTab: 'translation',
+      };
+}
 
-const viewer = new PdfViewer();
-const stage = new StageTransform();
-const history = new History(() => { refreshChrome(); if (viewer.doc && S.pmap) renderCurrent(); });
-
-const S = {
-  pdfBytes: null, pdfName: '', sha256: '',
-  pdfLanguage: null, // the PDF's own language, asked once when extraction first needs it (spec 1.5 §22)
-  pmap: null, page: 1, zoom: 1.2,
-  // The v2 project identity of the loaded map: the shared map's id + the two files'
-  // metadata, plus the last-saved canonical JSON of each side (so the UI can say which
-  // half has unsaved changes). `pmap` above stays the *resolved* object the editor
-  // works on; these two are what the storage layer writes back.
-  project: null, dirtySides: { map: false, content: false },
-  // Content variants touched this session, so translation can read the PDF-language
-  // variant while writing into a target (spec 1.5 §22). In memory only: a variant is
-  // still an ordinary file on disk and is never written here.
-  variants: [],
-  selected: new Set(),
-  // Every content item selected by Ctrl/Cmd+A in Content mode, as `${regionId}\u0000${index}`.
-  // Single-item selection keeps using itemIndex/itemSelected; this set is only non-empty for
-  // the page-wide selection (and is cleared by the next single-item or single-region pick).
-  itemSelection: new Set(),
-  // Regions classified "awaiting OCR" (spec 1.5 §20): the PDF has no usable selectable
-  // text under them (a scan, a raster figure, or a broken text layer), so extraction
-  // cannot fill them and OCR is the only way they ever will. A runtime-only editing aid
-  // — never written to the map or a content variant, cleared when the region gains
-  // content and invisible outside the editing modes.
-  awaitingOcr: new Set(),
-  // Workflow intent (rev 1.6). This is a view state, not project data: switching it never
-  // writes to the map or a content file. `lensVariant` remembers the variant each workflow
-  // was last working in, so moving Translate → Improve → Translate returns to the target
-  // variant the translator was editing.
-  lens: 'translate',
-  lensVariant: { translate: null, improve: null },
-  suppressLensVariantRemember: false,
-  // The IndexedDB slot the *currently active* content variant belongs to. This follows the
-  // lens for within-lens switches but is pinned to the target lens during a lens switch, so
-  // the outgoing variant is never written into the incoming lens's slot.
-  activeSlot: 'translate',
-  tool: 'select', mode: 'region', itemIndex: 0,
-  itemSelected: false, // true when an item (not just its region) is the current selection
-  draft: [], splitPts: [], cursor: null, marquee: null, marqueeBase: null, marqueeAdditive: false,
-  marqueeItems: false, // the band is sweeping items inside the selected region (Content mode)
-  dragPreview: null,
-  selectedVertex: null, // { id, idx } — a vertex picked for Delete
-  overlayVisible: true,
-  // Show the status labels on regions (heading/text/selectable/unreadable). Runtime-only,
-  // like the overlay itself; Improve ▸ Show selectability status and Shift+D toggle it.
-  showDigital: true,
-  bgPreview: false, // the background colour picker has focus: preview the mask on the selected region
-};
 
 // ---- per-document intent (local only) ------------------------------------------------
-// The workflow choice and the PDF's own language belong to the document, not to a map or
-// content file. Keeping them in localStorage means reopening the same PDF restores the
-// user's intent without adding a new field to .pmap or .content.json.
+// The PDF's own language belongs to the document, not to a map or content file. Keeping
+// it in localStorage means reopening the same PDF restores the language choice without
+// adding a new field to .pmap or .content.json. The workflow (improve vs translate) is
+// derived from the active content variant's source/destination languages — there is no
+// separate lens setting to persist.
 const DOC_PREFS_KEY = 'pmap.docPrefs';
 function loadDocPrefs(sha) {
   if (!sha) return {};
@@ -208,10 +242,10 @@ function loadDocPrefs(sha) {
   } catch { return {}; }
 }
 function saveDocPrefs() {
-  if (!S.sha256) return;
+  if (!appState.sha256) return;
   try {
     const all = JSON.parse(localStorage.getItem(DOC_PREFS_KEY) || '{}');
-    all[S.sha256] = { lens: S.lens, pdfLanguage: S.pdfLanguage || null };
+    all[appState.sha256] = { pdfLanguage: appState.pdfLanguage || null };
     localStorage.setItem(DOC_PREFS_KEY, JSON.stringify(all));
   } catch {}
 }
@@ -226,214 +260,15 @@ function clearDocPrefsFor(sha) {
   } catch {}
 }
 function activeVariantKey() {
-  const p = S.project;
+  const p = appState.content;
   if (!p) return null;
-  return `${p.mapId}\u0000${p.content.name || ''}\u0000${p.content.created || ''}`;
+  return `${p.mapId}\u0000${p.name || ''}\u0000${p.created || ''}`;
 }
 function keyForVariant(content) { return content ? variantKey(content) : null; }
 function findVariantByKey(key) {
   if (!key) return null;
-  return S.variants.find(v => v.key === key)?.content || null;
+  return appState.variants.find(v => v.key === key)?.content || null;
 }
-function rememberLensVariant() {
-  if (S.suppressLensVariantRemember || !S.lens) return;
-  const key = activeVariantKey();
-  if (key) S.lensVariant[S.lens] = key;
-}
-// The lens a variant belongs to in IndexedDB. Translate owns the destination-language
-// variant; Improve owns the source-language/selectable-text variant.
-function contentSlotForLens(lens) { return lens === 'improve' ? 'improve' : 'translate'; }
-
-// Persist the active variant to a lens's IndexedDB slot. Called before the variant is
-// unloaded (switching lens) so work is never lost: the content leaves the active slot
-// only after it is safe. A no-op when there is nothing to save.
-async function saveActiveVariantToSlot(lens) {
-  if (!S.pmap || !S.project) return false;
-  try {
-    const { mapText, contentText, changed } = await projectTexts();
-    if (!(changed.map || changed.content)) return true; // nothing dirty to persist
-    await saveSessionProject({
-      slot: contentSlotForLens(lens),
-      mapJson: mapText,
-      mapName: S.project.map.name,
-      contentJson: contentText,
-      contentName: S.project.content.name,
-    });
-    return true;
-  } catch { return false; }
-}
-
-// The variant a lens should work in. Translate works in the destination-language variant;
-// Improve works in the PDF-language/selectable-text variant. Each lens's variant is loaded
-// from its own IndexedDB slot (falling back to an empty variant when none exists yet), so
-// the translated content never leaks into the Improve workflow and vice versa.
-async function focusVariantForLens(next) {
-  if (!S.project) return false;
-  const slot = contentSlotForLens(next);
-  let desired = findVariantByKey(S.lensVariant[next]);
-  if (next === 'translate') {
-    // Translate always works in the destination-language variant. A remembered key can
-    // still point at the source variant when both lenses shared the initial base variant;
-    // in that case it is not a translation, so ignore it.
-    const targetLang = String(els.fTargetLang.value || settings.targetLang || 'de').toLowerCase();
-    if (desired && String(desired.meta?.language || '').toLowerCase() !== targetLang) desired = null;
-    if (!desired) desired = findRememberedVariant(targetLang);
-    if (!desired) {
-      // No translation exists yet: check the IndexedDB slot, then open an empty destination
-      // variant rather than showing (and editing) the source text in the Translate workflow.
-      const saved = await loadSessionContent(slot);
-      if (saved?.json) {
-        try {
-          const parsed = parseContent(saved.json);
-          if (parsed.mapId === S.project.mapId && String(parsed.meta?.language || '').toLowerCase() === targetLang) {
-            desired = parsed;
-          }
-        } catch {}
-      }
-      if (!desired) return switchToTargetVariant(targetLang);
-    }
-  } else if (next === 'improve') {
-    // Improve foregrounds the PDF-language/selectable-text variant, not whichever target
-    // the translator happened to edit last. Prefer the in-memory cache, then the slot.
-    const sourceLang = String(S.pdfLanguage || selectableLanguageDefault() || '').toLowerCase();
-    if (sourceLang && sourceLang !== 'auto') {
-      const source = findRememberedVariant(sourceLang);
-      if (source) desired = source;
-      else {
-        const saved = await loadSessionContent(slot);
-        if (saved?.json) {
-          try {
-            const parsed = parseContent(saved.json);
-            if (parsed.mapId === S.project.mapId && String(parsed.meta?.language || '').toLowerCase() === sourceLang) desired = parsed;
-          } catch {}
-        }
-      }
-    }
-  }
-  if (!desired) return false;
-  const key = keyForVariant(desired);
-  if (key && key === activeVariantKey()) return false;
-  S.suppressLensVariantRemember = true;
-  try { return await switchContentVariant(desired, { guard: false, quiet: true }); }
-  finally { S.suppressLensVariantRemember = false; }
-}
-function refreshLensSwitcher() {
-  if (!els.lensSwitcher) return;
-  for (const b of els.lensSwitcher.querySelectorAll('[data-lens]')) {
-    const on = b.dataset.lens === S.lens;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-pressed', String(on));
-  }
-}
-// Improve's "destination" language: the Selectable text variant's own language, which
-// also feeds OCR. It is chosen from the same toolbar dropdown Translate uses for its
-// target, so extraction never has to stop for a browser prompt. The two lenses keep
-// separate remembered choices: switching workflows must not silently retarget either.
-function selectableLanguageDefault() {
-  const has = (code) => [...els.fTargetLang.options].some(o => o.value.toLowerCase() === code);
-  // Do not fall back to the active variant: when the PDF's language is still unknown the
-  // active variant is usually the translation target, not the document's own language.
-  const candidates = [S.pdfLanguage, sourceLangValue(), 'en'];
-  for (const raw of candidates) {
-    const code = String(raw || '').toLowerCase();
-    if (code && code !== 'auto' && has(code)) return code;
-  }
-  return 'en';
-}
-let improveLangGuessToken = 0;
-async function refreshImproveLanguageGuess() {
-  if (!viewer.doc || S.lens !== 'improve' || S.pdfLanguage) return;
-  const token = ++improveLangGuessToken;
-  let guess = '';
-  try { guess = await viewer.documentLanguage(); } catch { /* fall through */ }
-  if (!guess) {
-    const src = sourceLangValue();
-    if (src && src !== 'auto') guess = src;
-  }
-  if (token !== improveLangGuessToken || S.lens !== 'improve' || S.pdfLanguage) return;
-  const code = String(guess || '').toLowerCase();
-  if (code && [...els.fTargetLang.options].some(o => o.value.toLowerCase() === code)) els.fTargetLang.value = code;
-}
-function syncLensLanguageControl() {
-  if (!els.fTargetLang) return;
-  const label = $('lbl-target-lang-text');
-  if (S.lens === 'improve') {
-    if (label) label.textContent = 'Source';
-    els.fTargetLang.title = 'Source language of the selectable text variant and its OCR';
-    const want = selectableLanguageDefault();
-    if ([...els.fTargetLang.options].some(o => o.value.toLowerCase() === want)) els.fTargetLang.value = want;
-    refreshImproveLanguageGuess();
-  } else {
-    if (label) label.textContent = 'Destination';
-    els.fTargetLang.title = 'Destination language for region translation';
-    els.fTargetLang.value = settings.targetLang || 'de';
-  }
-}
-function applyLensChrome() {
-  document.body.classList.toggle('lens-translate', S.lens === 'translate');
-  document.body.classList.toggle('lens-improve', S.lens === 'improve');
-  syncLensLanguageControl();
-  refreshLensSwitcher();
-  menubar?.setMenus(menusForLens(S.lens));
-  refreshChrome();
-}
-async function setLens(lens, { announce = false, switchVariant = true } = {}) {
-  if (!LENS_COPY[lens]) return;
-  if (S.lens === lens) {
-    applyLensChrome();
-    saveDocPrefs();
-    return;
-  }
-  rememberLensVariant();
-  const keepSelected = new Set(S.selected);
-  const outgoingLens = S.lens;
-  // Persist the outgoing variant to its own lens's slot before it is unloaded, so
-  // switching back to this lens restores the work. This is a real save, not a discard:
-  // the content leaves the active slot only after it is safe in IndexedDB.
-  await saveActiveVariantToSlot(outgoingLens);
-  S.lens = lens;
-  applyLensChrome();
-  syncPropsForm(); refreshMapInfo();
-  rerender();
-  saveDocPrefs();
-  const switched = switchVariant ? await focusVariantForLens(lens) : false;
-  // The active variant now belongs to the target lens; pin its slot so subsequent saves go
-  // to the right place.
-  S.activeSlot = contentSlotForLens(lens);
-  // A lens may foreground a different content variant. Region ids belong to the shared map,
-  // so the selection survives that switch even though the variant objects were rebuilt.
-  if (switched && keepSelected.size) {
-    const ids = new Set(currentRegions().map(r => r.id));
-    S.selected = new Set([...keepSelected].filter(id => ids.has(id)));
-    S.selectedVertex = null; S.itemIndex = 0; S.itemSelected = false; clearItemSelection();
-  }
-  if (!S.suppressLensVariantRemember) S.lensVariant[lens] = activeVariantKey() || S.lensVariant[lens];
-  refreshChrome(); syncPropsForm(); refreshMapInfo();
-  rerender();
-  if (announce) {
-    if (lens === 'improve' && !activeVariantIsSource()) {
-      setStatus('Improve workflow — Make this selectable or Add text will create/switch to Selectable text.');
-    } else {
-      setStatus(`${LENS_COPY[lens].label} workflow — working in ${LENS_COPY[lens].sourceVariant}.`);
-    }
-  }
-}
-// No import question: a newly opened PDF goes straight into a workflow instead of being
-// asked Translate-or-Improve. The workflow comes from Preferences… ▸ General ("Workflow
-// when a PDF opens", default Translate) unless this browser already saved a per-document
-// choice; both workflows share the map and variants, so the switch stays lossless.
-function requestedLens() {
-  return LENS_COPY[settings.defaultLens] ? settings.defaultLens : 'translate';
-}
-function maybeApplyDefaultLens() {
-  const prefs = loadDocPrefs(S.sha256);
-  if (LENS_COPY[prefs.lens]) { applyLensChrome(); return; }
-  void setLens(requestedLens(), { announce: true });
-}
-for (const b of els.lensSwitcher?.querySelectorAll('[data-lens]') || []) {
-  b.addEventListener('click', () => setLens(b.dataset.lens, { announce: true }));
-}
-document.body.classList.add('lens-translate');
 
 // ---- the four global modes (spec §9a) -------------------------------------------------
 // Two editing modes and two read-only ones, cycled with Tab:
@@ -442,11 +277,6 @@ document.body.classList.add('lens-translate');
 //   view / text — read-only Preview and native text selection (Original).
 // Each mode has one job, one tool set, one cursor vocabulary, so a mode check is what
 // almost every gate below asks. `isEditMode` means "the overlay is interactive at all".
-const MODE_ORDER = ['region', 'content', 'view', 'text'];
-const EDIT_MODES = new Set(['region', 'content']);
-const isEditMode = () => EDIT_MODES.has(S.mode);
-const inRegion = () => S.mode === 'region';
-const inContent = () => S.mode === 'content';
 
 let lastVertexClick = null; // { id, idx, t } — manual dbl-click (overlay nodes are rebuilt on render)
 let lastRegionClick = null; // { id, t }
@@ -460,17 +290,31 @@ let lastItemClick = null;   // { id, idx, t }
 // exception that also makes the region movable — the one geometry gesture left in this mode.
 function regionPointerDown(e, id) {
   if (!isEditMode()) return;
+  // Coloring mode (toggled with C in Region mode): dragging inside a region samples
+  // the colour under the pointer and sets the region background on release. Normal
+  // region operations are disabled while coloring is on.
+  if (appState.coloringMode && !e.altKey && !e.shiftKey) {
+    const r = regionById(id);
+    if (r && !isRegionLocked(r)) {
+      e.stopPropagation();
+      startEyedropper(e, r);
+      return;
+    }
+    // Clicking empty space in coloring mode: do nothing (eyedropper only starts from inside a region).
+    if (!r) { return; }
+    return;
+  }
   const p = stagePdfPoint(e);
-  if (inRegion() && S.tool === 'split') { S.splitPts.push(p); rerender(); return; }
-  if (inRegion() && S.draft.length) { S.draft.push(p); rerender(); return; } // keep drawing across a region
+  if (inRegion() && appState.tool === 'split') { appState.splitPts.push(p); rerender(); return; }
+  if (inRegion() && appState.draft.length) { appState.draft.push(p); rerender(); return; } // keep drawing across a region
   const r = regionById(id);
   if (!r) return;
   if (inContent()) {
     lastRegionClick = null;
-    S.selectedVertex = null;
-    S.itemSelected = false; clearItemSelection();
+    appState.selectedVertex = null;
+    appState.itemSelected = false; clearItemSelection();
     if (e.shiftKey) toggleSelect(id);
-    else if (!S.selected.has(id)) selectSingle(id);
+    else if (!appState.selected.has(id)) selectSingle(id);
     if (e.altKey) {
       if (isRegionLocked(r)) setStatus(`${r.id} is locked — press L in Region mode to unlock it.`);
       else tools.startRegionDrag(e, id); // one undo step, exactly like a Region-mode move
@@ -486,28 +330,29 @@ function regionPointerDown(e, id) {
   // never dragged, reshaped or given new vertices.
   if (isRegionLocked(r)) {
     lastRegionClick = null;
-    S.selectedVertex = null;
-    S.itemSelected = false; clearItemSelection();
+    appState.selectedVertex = null;
+    appState.itemSelected = false; clearItemSelection();
     if (e.shiftKey) toggleSelect(id);
-    else if (!S.selected.has(id)) selectSingle(id);
+    else if (!appState.selected.has(id)) selectSingle(id);
     setStatus(`${r.id} is locked — press L to unlock. Text and image items inside stay editable.`);
     rerender();
     return;
   }
-  const edge = Overlay.nearestEdge(r, p, S.zoom);
+  const edge = Overlay.nearestEdge(r, p, appState.zoom);
   const now = performance.now();
   if (lastRegionClick && lastRegionClick.id === id && now - lastRegionClick.t < 400) {
     lastRegionClick = null;
     if (edge) { insertVertexOnRegion(id, p, edge.ring); return; } // dbl-click edge adds a vertex
   }
   lastRegionClick = { id, t: now };
-  S.selectedVertex = null;
-  S.itemSelected = false; clearItemSelection();
+  appState.selectedVertex = null;
+  appState.itemSelected = false; clearItemSelection();
   if (e.shiftKey) toggleSelect(id);
-  else if (!S.selected.has(id)) selectSingle(id);
+  else if (!appState.selected.has(id)) selectSingle(id);
   if (edge) tools.startEdgeDrag(e, id, edge.ring, edge.edge);
   else tools.startRegionDrag(e, id);
 }
+
 
 const overlay = new Overlay(els.svg, {
   onRegionPointerDown(e, id) { e.stopPropagation(); regionPointerDown(e, id); },
@@ -515,7 +360,7 @@ const overlay = new Overlay(els.svg, {
     e.stopPropagation();
     // Vertex handles exist only in Region mode (spec §9a) — in Content mode the overlay
     // draws none, so this is just a belt-and-braces guard.
-    if (!inRegion() || S.tool !== 'select' || S.draft.length) return;
+    if (!inRegion() || appState.tool !== 'select' || appState.draft.length) return;
     if (isRegionLocked(regionById(id))) { setStatus('Region is locked — press L to unlock before reshaping.'); return; }
     // Ctrl+click deletes the vertex. Option/Alt is *not* a delete: Alt means "the region, not
     // the item" (spec §9b) and a vertex already belongs to the region, so an Alt press on a
@@ -530,28 +375,40 @@ const overlay = new Overlay(els.svg, {
     }
     lastVertexClick = { id, ring, idx, t: now };
     selectSingle(id);
-    S.selectedVertex = { id, ring, idx }; // Delete removes this vertex
+    appState.selectedVertex = { id, ring, idx }; // Delete removes this vertex
     tools.startVertexDrag(e, id, ring, idx);
   },
   onItemPointerDown(e, id, index) {
     e.stopPropagation();
-    if (!inContent()) return; // items are frozen outside Content mode (spec §9a)
+    const r = regionById(id);
+    if (!r) return;
+    const item = r.content?.items?.[index];
     // Option/Alt: the press belongs to the region under the item, not to the item (spec
     // §9b) — the region's own rules then decide (its line, or the region itself).
     if (e.altKey) { regionPointerDown(e, id); return; }
-    const r = regionById(id);
-    if (!r) return;
-    S.selectedVertex = null;
-    if (!S.selected.has(id)) { S.selected.clear(); S.selected.add(id); }
-    const item = r.content?.items?.[index];
+    appState.selectedVertex = null;
+    if (!appState.selected.has(id)) { appState.selected.clear(); appState.selected.add(id); }
     const now = performance.now();
+    // Double-click detection works in both Region and Content mode.
+    // In Region mode, a double-click on a text item switches to Content mode and opens the editor.
     if (lastItemClick && lastItemClick.id === id && lastItemClick.idx === index && now - lastItemClick.t < 400) {
       lastItemClick = null;
-      if (item?.type === 'text') { S.itemSelected = true; openInlineEditor(r, index, { box: item.box, style: item.style, blocks: itemBlocks(item) }); return; }
+      if (item?.type === 'text') {
+        if (!inContent()) setMode('content');
+        appState.itemSelected = true;
+        openInlineEditor(r, index, { box: item.box, style: item.style, blocks: itemBlocks(item) });
+        return;
+      }
     }
     lastItemClick = { id, idx: index, t: now };
-    S.itemIndex = index;
-    S.itemSelected = true; clearItemSelection();
+    if (!inContent()) {
+      // In Region mode, single click just selects the region (already done above).
+      // Don't start item drag or select the item.
+      rerender();
+      return;
+    }
+    appState.itemIndex = index;
+    appState.itemSelected = true; clearItemSelection();
     tools.startItemDrag(e, id, index);
   },
   onItemHandlePointerDown(e, id, index, corner) {
@@ -559,26 +416,26 @@ const overlay = new Overlay(els.svg, {
     if (!inContent()) return; // item handles exist only in Content mode (spec §9a)
     // Option/Alt hands the press back to the region under the handle (spec §9b).
     if (e.altKey) { regionPointerDown(e, id); return; }
-    S.selectedVertex = null;
-    if (!S.selected.has(id)) { S.selected.clear(); S.selected.add(id); }
-    S.itemIndex = index;
-    S.itemSelected = true; clearItemSelection();
+    appState.selectedVertex = null;
+    if (!appState.selected.has(id)) { appState.selected.clear(); appState.selected.add(id); }
+    appState.itemIndex = index;
+    appState.itemSelected = true; clearItemSelection();
     tools.startItemResize(e, id, index, corner);
   },
 });
 const tools = new ToolController(els.stageWrap || els.stage, overlay, {
-  get tool() { return S.tool; },
-  get mode() { return S.mode; },
+  get tool() { return appState.tool; },
+  get mode() { return appState.mode; },
   get editing() { return isEditMode(); },
   get regionMode() { return inRegion(); },
   get contentMode() { return inContent(); },
-  get zoom() { return S.zoom; },
-  drafting() { return S.draft.length >= 3; },
-  drawing() { return S.draft.length > 0; },
-  addDraftPoint(p) { S.selectedVertex = null; S.itemSelected = false; clearItemSelection(); S.draft.push(p); rerender(); },
-  addSplitPoint(p) { S.splitPts.push(p); rerender(); },
-  selectNone() { if (S.selected.size || S.selectedVertex || S.itemSelected || S.itemSelection.size) { S.selected.clear(); S.selectedVertex = null; S.itemSelected = false; clearItemSelection(); rerender(); } },
-  deselect() { S.marquee = null; this.selectNone(); },
+  get zoom() { return appState.zoom; },
+  drafting() { return appState.draft.length >= 3; },
+  drawing() { return appState.draft.length > 0; },
+  addDraftPoint(p) { appState.selectedVertex = null; appState.itemSelected = false; clearItemSelection(); appState.draft.push(p); rerender(); },
+  addSplitPoint(p) { appState.splitPts.push(p); rerender(); },
+  selectNone() { if (appState.selected.size || appState.selectedVertex || appState.itemSelected || appState.itemSelection.size) { appState.selected.clear(); appState.selectedVertex = null; appState.itemSelected = false; clearItemSelection(); rerender(); } },
+  deselect() { appState.marquee = null; this.selectNone(); },
   // Rubber-band selection. beginMarquee captures the "base" selection (for additive
   // Shift-drags); setMarquee is called on every drag move and updates the selection
   // live, so regions highlight as they are swept over (and un-highlight when the band
@@ -587,25 +444,25 @@ const tools = new ToolController(els.stageWrap || els.stage, overlay, {
   // selects the item it sweeps, so an editorial drag never rebuilds the region selection.
   // With no region selected there is nothing to sweep, so it falls back to picking regions.
   beginMarquee(additive) {
-    S.marqueeAdditive = !!additive;
-    if (inContent() && S.selected.size === 1) {
-      S.marqueeItems = true;
-      S.marqueeBase = new Set(S.selected);
-      S.itemSelected = false; clearItemSelection();
-      S.marquee = null;
+    appState.marqueeAdditive = !!additive;
+    if (inContent() && appState.selected.size === 1) {
+      appState.marqueeItems = true;
+      appState.marqueeBase = new Set(appState.selected);
+      appState.itemSelected = false; clearItemSelection();
+      appState.marquee = null;
       rerender();
       return;
     }
-    S.marqueeItems = false;
-    S.marqueeBase = additive ? new Set(S.selected) : new Set();
-    if (!additive) { S.selected.clear(); S.selectedVertex = null; S.itemSelected = false; clearItemSelection(); }
-    S.marquee = null;
+    appState.marqueeItems = false;
+    appState.marqueeBase = additive ? new Set(appState.selected) : new Set();
+    if (!additive) { appState.selected.clear(); appState.selectedVertex = null; appState.itemSelected = false; clearItemSelection(); }
+    appState.marquee = null;
     rerender();
   },
   setMarquee(rect) {
     if (rect) {
       const r = [Math.min(rect[0], rect[2]), Math.min(rect[1], rect[3]), Math.max(rect[0], rect[2]), Math.max(rect[1], rect[3])];
-      if (S.marqueeItems) {
+      if (appState.marqueeItems) {
         const reg = currentRegion();
         const items = reg?.content?.items || [];
         // Items paint in array order, so the last box the band touches is the topmost one:
@@ -615,50 +472,50 @@ const tools = new ToolController(els.stageWrap || els.stage, overlay, {
           const [x, y, w, h] = itemAbsBox(regionPoints(reg.geometry), it);
           if (rectsIntersect([x, y, x + w, y + h], r)) hit = i;
         });
-        S.itemSelected = hit >= 0; clearItemSelection();
-        if (hit >= 0) S.itemIndex = hit;
+        appState.itemSelected = hit >= 0; clearItemSelection();
+        if (hit >= 0) appState.itemIndex = hit;
         setStatus(hit >= 0
           ? `Item ${hit + 1} of ${items.length} selected.`
           : items.length ? 'Drag over a box in this region to select it.' : `${reg.id} has no items yet — press T to add text.`);
-        S.marquee = rect; rerender(); return;
+        appState.marquee = rect; rerender(); return;
       }
-      const pg = getPage(S.pmap, S.page);
+      const pg = getPage(appState.pmap, appState.page);
       if (pg) {
         const hits = pg.regions.filter(x => rectsIntersect(regionBBox(x.geometry), r)).map(x => x.id);
-        const want = S.marqueeAdditive ? new Set([...(S.marqueeBase || []), ...hits]) : new Set(hits);
-        for (const id of [...S.selected]) if (!want.has(id)) S.selected.delete(id);
-        for (const id of want) S.selected.add(id);
-        S.selectedVertex = null; S.itemSelected = false; clearItemSelection();
+        const want = appState.marqueeAdditive ? new Set([...(appState.marqueeBase || []), ...hits]) : new Set(hits);
+        for (const id of [...appState.selected]) if (!want.has(id)) appState.selected.delete(id);
+        for (const id of want) appState.selected.add(id);
+        appState.selectedVertex = null; appState.itemSelected = false; clearItemSelection();
         setStatus(want.size ? `${want.size} region${want.size === 1 ? '' : 's'} selected.` : 'Drag over regions to select them.');
       }
     }
-    S.marquee = rect;
+    appState.marquee = rect;
     rerender();
   },
-  endMarquee() { S.marquee = null; S.marqueeBase = null; rerender(); },
+  endMarquee() { appState.marquee = null; appState.marqueeBase = null; rerender(); },
   // A click (press + release with no movement) on empty space — outside every region — clears
   // the whole selection: the selected region(s) *and* the selected content item. It works in
   // both editing modes, so the properties panel goes back to "Nothing selected" from anywhere.
   // Shift-click is the exception: that press means "add to the selection".
   onEmptyClick(additive) {
     if (additive) return;
-    if (!(S.selected.size || S.selectedVertex || S.itemSelected || S.itemSelection.size)) return;
-    S.selected.clear(); S.selectedVertex = null; S.itemSelected = false; clearItemSelection();
-    S.marqueeItems = false; S.marquee = null;
+    if (!(appState.selected.size || appState.selectedVertex || appState.itemSelected || appState.itemSelection.size)) return;
+    appState.selected.clear(); appState.selectedVertex = null; appState.itemSelected = false; clearItemSelection();
+    appState.marqueeItems = false; appState.marquee = null;
     setStatus('Selection cleared.');
     rerender();
   },
-  setCursor(p) { S.cursor = [p[0], p[1]]; rerender(); },
+  setCursor(p) { appState.cursor = [p[0], p[1]]; rerender(); },
   previewDrag(d, p) {
     // A click that becomes a drag must not count as the first half of a double-click.
     if (Math.hypot(p[0] - d.start[0], p[1] - d.start[1]) > 2) { lastVertexClick = null; lastRegionClick = null; lastItemClick = null; }
-    S.dragPreview = { ...d, cur: [...p] };
+    appState.dragPreview = { ...d, cur: [...p] };
     rerender();
   },
   commitDrag(d, p) { commitDrag(d, p); },
   finishDraw() { finishDraw(); },
   finishSplit() { finishSplit(); },
-  cancelDraft() { S.draft = []; S.splitPts = []; S.dragPreview = null; S.cursor = null; S.marquee = null; S.marqueeBase = null; S.marqueeItems = false; if (S.tool === 'split' || S.tool === 'polygon') S.tool = 'select'; rerender(); },
+  cancelDraft() { appState.draft = []; appState.splitPts = []; appState.dragPreview = null; appState.cursor = null; appState.marquee = null; appState.marqueeBase = null; appState.marqueeItems = false; if (appState.tool === 'split' || appState.tool === 'polygon') appState.tool = 'select'; rerender(); },
   deleteSelection() { deleteSelection(); },
   deleteKey() { deleteKey(); },
   undo() { history.undo(); }, redo() { history.redo(); },
@@ -667,7 +524,7 @@ const tools = new ToolController(els.stageWrap || els.stage, overlay, {
 // pointer event -> PDF-point coords (top-left origin, scale 1)
 function stagePdfPointXY(cx, cy) {
   const rect = els.svg.getBoundingClientRect();
-  return [(cx - rect.left) / S.zoom, (cy - rect.top) / S.zoom];
+  return [(cx - rect.left) / appState.zoom, (cy - rect.top) / appState.zoom];
 }
 function stagePdfPoint(e) { return stagePdfPointXY(e.clientX, e.clientY); }
 
@@ -700,7 +557,7 @@ function applyOverlayCursor(target, cx, cy, altKey) {
     return;
   }
   if (!inRegion()) { target.style.cursor = ''; return; }
-  target.style.cursor = Overlay.regionCursor(region, stagePdfPointXY(cx, cy), S.zoom) || '';
+  target.style.cursor = Overlay.regionCursor(region, stagePdfPointXY(cx, cy), appState.zoom) || '';
 }
 
 els.svg.addEventListener('pointermove', (e) => {
@@ -714,20 +571,8 @@ function refreshOverlayCursor(altKey) {
   const el = document.elementFromPoint(lastHover.x, lastHover.y);
   if (el) applyOverlayCursor(el, lastHover.x, lastHover.y, altKey);
 }
-window.addEventListener('keydown', (e) => { if (e.key === 'Alt') refreshOverlayCursor(true); }, true);
-window.addEventListener('keyup', (e) => { if (e.key === 'Alt') refreshOverlayCursor(false); }, true);
 
 // ---- init static UI ----
-els.fTargetLang.innerHTML = LANGUAGES.map(([code, name]) => `<option value="${code}">${name} (${code})</option>`).join('');
-els.fTargetLang.value = settings.targetLang || 'de';
-
-// Source language for translation. Most providers accept 'auto' (detect on the
-// server); Chrome's on-device model can't, so the user can name it here.
-els.fSourceLang.innerHTML = `<option value="auto">Auto-detect</option>`
-  + LANGUAGES.map(([code, name]) => `<option value="${code}">${name} (${code})</option>`).join('');
-els.fSourceLang.value = settings.sourceLang || 'auto';
-els.fSourceLang.onchange = () => { settings.sourceLang = els.fSourceLang.value || 'auto'; saveSettings(); refreshChromeAiStatus(); };
-
 // Preferences dialog: the same language lists, but as dropdowns. Both mirror the
 // region toolbar and pre-select it when the dialog closes.
 $('set-target-lang').innerHTML = LANGUAGES.map(([code, name]) => `<option value="${code}">${name} (${code})</option>`).join('');
@@ -735,7 +580,7 @@ $('set-target-lang').value = settings.targetLang || 'de';
 $('set-source-lang').innerHTML = `<option value="auto">Auto-detect (let the provider decide)</option>`
   + LANGUAGES.map(([code, name]) => `<option value="${code}">${name} (${code})</option>`).join('');
 $('set-source-lang').value = settings.sourceLang || 'auto';
-$('set-source-lang').onchange = () => { settings.sourceLang = $('set-source-lang').value || 'auto'; els.fSourceLang.value = settings.sourceLang; saveSettings(); refreshChromeAiStatus(); };
+$('set-source-lang').onchange = () => { settings.sourceLang = $('set-source-lang').value || 'auto'; saveSettings(); refreshChromeAiStatus(); };
 
 // The URL field is editable for every LibreTranslate server: the instance's own
 // address is only the default value, so any preset can be pointed elsewhere. Edits
@@ -749,28 +594,31 @@ $('set-provider').value = settings.provider;
 $('set-provider').onchange = refreshSettingsRows;
 fillSettingsFields();
 
-$('btn-zoom-in').onclick = () => setZoom(S.zoom * 1.2);
-$('btn-zoom-out').onclick = () => setZoom(S.zoom / 1.2);
+$('btn-zoom-in').onclick = () => setZoom(appState.zoom * 1.2);
+$('btn-zoom-out').onclick = () => setZoom(appState.zoom / 1.2);
 $('btn-zoom-fit').onclick = fitZoom;
 for (const b of document.querySelectorAll('#mode-group button')) b.onclick = () => setMode(b.dataset.mode);
 refreshModeIndicator();
 $('btn-crop-img').onclick = cropImageForSelected;
-$('btn-translate-page-text').onclick = () => translateFromPageText();
-els.btnMakeSelectable.onclick = () => extractSelectedContent();
 $('btn-lock-region').onclick = () => toggleLockSelected();
+els.btnColoringMode.onclick = () => toggleColoringMode(); // eyedropper toggle: on = color mode (like C), off = out of color mode
 $('btn-add-text').onclick = () => addTextItem();
 $('btn-add-image').onclick = () => addImageItem();
-$('btn-item-fit-text').onclick = () => { if (selectedItem()) resizeItemToText(currentRegion().id, S.itemIndex); };
+$('btn-item-fit-text').onclick = () => { if (selectedItem()) resizeItemToText(currentRegion().id, appState.itemIndex); };
 $('btn-item-front').onclick = () => moveItemTo('front');
 $('btn-item-back').onclick = () => moveItemTo('back');
 $('btn-item-delete').onclick = () => { if (selectedItem()) deleteItem(); };
 els.filePdf.onchange = (e) => openFileList([...e.target.files]);
 els.filePmap.onchange = (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) openFileList(fs); };
+els.fileContentVariant.onchange = async (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) { await openContentFile(fs[0]); } };
 els.fileItemImage.onchange = async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) await addImageFromSource(await readFileDataUrl(f)); };
 
 function readFileDataUrl(file) {
   return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(fr.error); fr.readAsDataURL(file); });
 }
+
+// Initialize background color picker handlers
+initBackgroundPicker();
 
 // Ctrl/Cmd+V with a region selected creates an image item from the clipboard. Placing an
 // item is editorial work, so — like T — the paste is live in Content mode only (spec §11.5).
@@ -782,97 +630,114 @@ window.addEventListener('paste', async (e) => {
   e.preventDefault();
   await addImageFromSource(await readFileDataUrl(file));
 });
-// Background colour. macOS's native <input type="color"> fires `change` only when its panel
-// closes, so the region previews its own mask (bgPreview) and repaints live on `input`
-// while the picker has focus — otherwise the selected region is exactly the one region whose
-// mask is suppressed, and the chosen colour would not be visible. The previous colours are
-// snapshotted at focus so `change` stays the *single* undoable commit; a blur without a
-// change (the panel was dismissed) puts the live preview back.
-let bgSnapshot = null; // Map(region id -> previous background) captured while #f-bg has focus
-els.fBg.onfocus = () => {
-  if (!bgSnapshot) bgSnapshot = new Map(selectedRegions().map(r => [r.id, r.content?.background ?? DEFAULT_BACKGROUND]));
-  S.bgPreview = true; rerender();
-};
-els.fBg.oninput = () => {
-  const v = els.fBg.value;
-  for (const r of selectedRegions()) r.content.background = v; // live only; committed on change
-  S.bgPreview = true; rerender();
-};
-els.fBg.onchange = () => {
-  const v = els.fBg.value;
-  const snap = bgSnapshot; bgSnapshot = null; S.bgPreview = false;
-  const ids = new Set(selectedRegions().map(r => r.id));
-  if (!ids.size) { rerender(); return; }
-  const pg = getPage(S.pmap, S.page);
-  const provenance = new Map(pg.regions.filter(r => ids.has(r.id)).map(r => [r.id, detectionSnapshot(r)]));
-  const apply = () => pg.regions.filter(r => ids.has(r.id)).forEach(r => { r.content.background = v; clearDetection(r); });
-  const restore = () => pg.regions.filter(r => ids.has(r.id)).forEach(r => {
-    r.content.background = (snap && snap.get(r.id)) ?? DEFAULT_BACKGROUND;
-    restoreDetection(r, provenance.get(r.id));
-  });
-  history.exec({ label: 'change background', do() { apply(); touch(S.pmap); rerender(); }, undo() { restore(); rerender(); } });
-};
-els.fBg.onblur = () => {
-  if (bgSnapshot) { // focused, changed, but no `change` (the panel was dismissed): cancel the preview
-    for (const r of selectedRegions()) if (bgSnapshot.has(r.id)) r.content.background = bgSnapshot.get(r.id);
-    bgSnapshot = null;
-  }
-  S.bgPreview = false; rerender();
-};
-// `I` is the "pick a colour" key (spec §11): it opens the region background colour control the
-// same way a click on the swatch does, so the native picker — and its eyedropper — comes up.
-// The control only exists while a region is selected, so the key is gated on it being on screen
-// (the contextual-keys rule), exactly like `Shift+T`.
-function backgroundButtonVisible() {
-  return !!els.fBg && !!els.regionTools && !els.regionTools.hidden && els.fBg.offsetParent !== null;
-}
-function openBackgroundPicker() {
-  els.fBg.focus(); // starts the mask preview, then hand off to the picker
-  try {
-    if (typeof els.fBg.showPicker === 'function') { els.fBg.showPicker(); return; }
-  } catch { /* fall through to click */ }
-  els.fBg.click();
-}
-els.fTargetLang.onchange = () => {
-  const value = els.fTargetLang.value || '';
-  if (S.lens === 'improve') {
-    settings.selectableLang = value || settings.selectableLang;
-    if (value) S.pdfLanguage = value;
-    saveSettings(); saveDocPrefs();
-    setStatus(`Source language: ${languageName(value)} (${value}).`);
-    rerender(); refreshChrome(); refreshMapInfo();
-  } else {
-    settings.targetLang = value || settings.targetLang;
-    saveSettings();
-  }
-};
-els.fItemSource.onchange = () => editItem(i => { i.source = els.fItemSource.value; }, 'edit image source');
 els.fItemFit.onchange = () => editItem(i => { i.fit = els.fItemFit.value; }, 'item fit');
 // A box's size (and position) is a page gesture: drag the box or its corner handles. The
 // panel deliberately has no width/height fields — the numbers went stale the moment a
 // handle moved, and typing them resized the content behind the user's back.
 
 // ---- toolbar rich-text tools: format the editor selection (never the whole box) ----
-for (const group of [els.textTools, els.tableTools]) {
+for (const group of [els.textTools]) {
   if (!group) continue;
   group.addEventListener('pointerdown', () => captureEditorSel());
 }
-for (const b of [els.ttBold, els.ttItalic, els.ttUnderline, els.ttTable, els.ttUl, els.ttOl, els.ttHead, els.textZoomIn, els.textZoomOut]) {
+for (const b of [els.ttBold, els.ttItalic, els.ttUnderline, els.ttTable, els.ttUl, els.ttOl, els.ttHead, els.textZoomIn, els.textZoomOut, els.ttTableAddRow, els.ttTableAddCol, els.ttTableDelRow, els.ttTableDelCol]) {
   if (b) b.addEventListener('mousedown', (e) => e.preventDefault());
 }
-els.ttBold.onclick = () => applyTextFormat('bold');
-els.ttItalic.onclick = () => applyTextFormat('italic');
-els.ttUnderline.onclick = () => applyTextFormat('underline');
-els.ttColor.onchange = () => applyTextFormat('color', els.ttColor.value);
+// Toggle Bold/Italic/Underline against the style of the *current* editor content. The model
+// is synced from the DOM first so the target state matches what the user sees, then passed
+// explicitly (rather than leaving the formatting layer to infer a toggle).
+function toggleTextFormat(kind) {
+  if (!ensureEditorOpen()) return;
+  readEditor();
+  applyTextFormat(kind, !editorCurrentStyle()[kind]);
+}
+els.ttBold.onclick = () => toggleTextFormat('bold');
+els.ttItalic.onclick = () => toggleTextFormat('italic');
+els.ttUnderline.onclick = () => toggleTextFormat('underline');
+if (els.ttColorInput) els.ttColorInput.onchange = () => applyTextFormat('color', els.ttColorInput.value);
 els.ttFont.onchange = () => applyTextFormat('font', els.ttFont.value);
-els.ttSize.onchange = () => applyTextFormat('size', els.ttSize.value);
-els.ttLine.onchange = () => applyLineSpacing(els.ttLine.value);
-els.ttAlign.onchange = () => applyAlign(els.ttAlign.value);
-els.ttDir.onchange = () => applyTextFormat('dir', els.ttDir.value);
+if (els.ttSize) {
+  els.ttSize.onchange = () => { applyTextFormat('size', els.ttSize.value); };
+}
+if (els.ttLine) {
+  els.ttLine.onchange = () => { applyLineSpacing(els.ttLine.value); };
+}
+if (els.ttAlignLeft) els.ttAlignLeft.onclick = () => applyAlign('left');
+if (els.ttAlignCenter) els.ttAlignCenter.onclick = () => applyAlign('center');
+if (els.ttAlignRight) els.ttAlignRight.onclick = () => applyAlign('right');
+if (els.ttAlignJustify) els.ttAlignJustify.onclick = () => applyAlign('justify');
+// Direction buttons (LTR/RTL)
+if (els.ttDirLtr) els.ttDirLtr.onclick = () => { setDirection('ltr'); };
+if (els.ttDirRtl) els.ttDirRtl.onclick = () => { setDirection('rtl'); };
+// Fullscreen toggle for text editor
+if (els.tmFullscreen) {
+  els.tmFullscreen.onclick = () => toggleTextEditorFullscreen();
+}
+// Table buttons
 if (els.ttTable) els.ttTable.onclick = () => blockOp('table');
+if (els.ttTableAddRow) els.ttTableAddRow.onclick = () => { tableOp('addRow'); };
+if (els.ttTableAddCol) els.ttTableAddCol.onclick = () => { tableOp('addCol'); };
+if (els.ttTableDelRow) els.ttTableDelRow.onclick = () => { tableOp('delRow'); };
+if (els.ttTableDelCol) els.ttTableDelCol.onclick = () => { tableOp('delCol'); };
 if (els.ttUl) els.ttUl.onclick = () => blockOp('ul');
 if (els.ttOl) els.ttOl.onclick = () => blockOp('ol');
 if (els.ttHead) els.ttHead.onclick = () => blockOp('head');
+if (els.ttColor) {
+  els.ttColor.onclick = () => { els.ttColorInput?.click(); };
+}
+if (els.ttColorInput) {
+  els.ttColorInput.onchange = () => {
+    applyTextFormat('color', els.ttColorInput.value);
+    // Update the A letter color
+    const letter = els.ttColor?.querySelector('.letter');
+    if (letter) letter.style.color = els.ttColorInput.value;
+  };
+}
+// Table border tools (in toolbar row 1)
+if (els.tblBorder) {
+  els.tblBorder.onclick = () => { els.tblBorderColor?.click(); };
+}
+if (els.tblBorderColor) {
+  els.tblBorderColor.onchange = () => {
+    if (els.tblBorderSwatch) els.tblBorderSwatch.style.backgroundColor = els.tblBorderColor.value;
+    tableOp('border', { color: els.tblBorderColor.value });
+  };
+}
+if (els.tblBorderWidth) {
+  els.tblBorderWidth.onchange = () => {
+    tableOp('border', { width: Math.max(0, Math.min(12, Number(els.tblBorderWidth.value) || 0)) });
+  };
+}
+
+// ---- direction setter ----
+function setDirection(dir) {
+  if (!ensureEditorOpen()) return;
+  inlineState.pending = null;
+  readEditor();
+  const range = liveRange();
+  const sEl = range ? closestFlow(range.startContainer) : null;
+  const eEl = range ? closestFlow(range.endContainer) : null;
+  const save = saveSelection();
+  const blocks = inlineState.blocks;
+  const si = +(sEl ? pathOf(sEl).split('.')[0] : 0);
+  const ei = +(eEl ? pathOf(eEl).split('.')[0] : si);
+  for (let bi = Math.min(si, ei); bi <= Math.max(si, ei); bi++) {
+    const b = blocks[bi];
+    if (!b) continue;
+    if (b.type === 'paragraph' || b.type === 'heading') b.direction = dir;
+    else if (b.type === 'table') {
+      const parts = String(pathOf(sEl || eEl || '')).split('.').map(Number);
+      const cell = b.rows?.[parts[1]]?.cells?.[parts[2]];
+      if (cell) cell.direction = dir;
+    }
+  }
+  renderEditor();
+  restoreSelection(save);
+  refreshContextTools();
+  // Update active button state
+  if (els.ttDirLtr) els.ttDirLtr.classList.toggle('active', dir === 'ltr');
+  if (els.ttDirRtl) els.ttDirRtl.classList.toggle('active', dir === 'rtl');
+}
 
 // table tool group (only while editing inside a table cell)
 const tblBtn = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
@@ -891,12 +756,16 @@ window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer?.files?.length) openFileList([...e.dataTransfer.files]); });
 
 // Leaving the page mid-download: stop the on-device model download cleanly.
-window.addEventListener('pagehide', () => { cancelChromeAiDownload(); flushSessionSave(); });
+window.addEventListener('pagehide', async () => { cancelChromeAiDownload(); await saveProjectNow(); });
+
+// Closing the browser tab / window (or refreshing): saves are now immediate on every
+// change, and pagehide awaits the final save. No beforeunload warning needed.
+// The File ▸ Close PDF dialog handles export-dirty changes explicitly.
 
 // ---- the project: a shared map + the active content variant ----
 // On disk a project is two v2 files (spec §3–§4): a structure-only `.pmap` and one
 // `<stem>.<variant>.content.json` keyed by the map's region ids. The editor holds them
-// *resolved* into one object (S.pmap), so this section is the only place that knows
+// *resolved* into one object (appState.pmap), so this section is the only place that knows
 // about the split: it reads both halves in, and writes both halves back out.
 
 // Comparison form of a file half, ignoring `meta.modified` (a timestamp, not data): two
@@ -916,13 +785,24 @@ function canonical(obj) {
 // whose data actually changed, so a content-only edit leaves the shared map's timestamp
 // (and its bytes) alone — and the info line can say which half is unsaved.
 async function projectTexts() {
-  const p = S.project;
-  const { map, content } = await splitProject(S.pmap, {
-    mapId: p.mapId,
-    mapName: p.map.name,
-    contentName: p.content.name,
-    variant: p.content.language,
-    label: p.content.label,
+  // Map-only serialization when no content variant is loaded.
+  if (!appState.content) {
+    const mapMeta = appState.pmap.meta || {};
+    const mm = appState.mapMeta || {};
+    const map = { ...appState.pmap, meta: { ...mapMeta, name: mm.name || mapMeta.name || defaultMapName(appState.pdfName), label: mm.label || mapMeta.label || 'Shared map', created: mm.created || mapMeta.created || '' } };
+    const changed = { map: appState.savedMap ? canonical(map) !== appState.savedMap : true, content: false };
+    const now = new Date().toISOString();
+    map.meta.modified = changed.map ? now : (appState.mapModified || now);
+    return { map, content: null, changed, mapText: serializeMap(map), contentText: '' };
+  }
+  const c = appState.content;
+  const { map, content } = await splitProject(appState.pmap, {
+    mapId: c.mapId,
+    mapName: appState.pmap.meta?.name || c.name,
+    contentName: c.name,
+    sourceLanguage: c.sourceLanguage,
+    destinationLanguage: c.destinationLanguage,
+    label: c.label,
     // A browser save is a download, so image sources stay inline. Externalizing them
     // into assets/ is the CLI's job (tools/pmap-migrate.mjs).
     externalizeDataUris: false,
@@ -930,19 +810,24 @@ async function projectTexts() {
   // Identity and dates belong to the project, not to the split. installProject() has
   // already given both halves the same name/label/created the baseline was built from, so
   // what is written here is byte-for-byte what "unchanged" is measured against.
-  map.meta.name = p.map.name;
-  map.meta.label = p.map.label;
-  map.meta.created = p.map.created;
-  content.meta.name = p.content.name;
-  content.meta.language = p.content.language;
-  if (p.content.label) content.meta.label = p.content.label; else delete content.meta.label;
-  content.meta.created = p.content.created;
-  content.assets = p.content.assets;   // references the loaded variant already had
+  // The map half keeps its own identity: the joined (legacy-shaped) model mixes the
+  // content variant's label/created into its meta, which must not leak into the map file
+  // or the baseline would not match what was loaded.
+  const mm = appState.mapMeta || {};
+  map.meta.name = mm.name || defaultMapName(appState.pdfName);
+  map.meta.label = mm.label || 'Shared map';
+  map.meta.created = mm.created || '';
+  content.meta.name = c.name;
+  content.meta.sourceLanguage = c.sourceLanguage;
+  content.meta.destinationLanguage = c.destinationLanguage;
+  if (c.label) content.meta.label = c.label; else delete content.meta.label;
+  content.meta.created = c.created;
+  content.assets = c.assets;   // references the loaded variant already had
   const canon = { map: canonical(map), content: canonical(content) };
-  const changed = { map: canon.map !== p.saved.map, content: canon.content !== p.saved.content };
+  const changed = { map: canon.map !== c.savedMap, content: canon.content !== c.savedContent };
   const now = new Date().toISOString();
-  map.meta.modified = changed.map ? now : (p.map.modified || now);
-  content.meta.modified = changed.content ? now : (p.content.modified || now);
+  map.meta.modified = changed.map ? now : (c.mapModified || now);
+  content.meta.modified = changed.content ? now : (c.modified || now);
   return { map, content, changed, mapText: serializeMap(map), contentText: serializeContent(content) };
 }
 
@@ -958,36 +843,66 @@ function variantKey(c) {
 function rememberVariant(c) {
   if (!c?.meta) return;
   const key = variantKey(c);
-  const hit = S.variants.find(v => v.key === key);
-  if (hit) hit.content = c; else S.variants.push({ key, content: c });
+  const hit = appState.variants.find(v => v.key === key);
+  if (hit) hit.content = c;
+  else appState.variants.push({ key, content: c, saved: canonical(c) });
 }
-// The most recently remembered variant of a language. The active variant always wins
-// (spec §22: two variants with the same language are disambiguated by the active one).
-function findRememberedVariant(language) {
+// A variant is the source-text variant of a language when it is an *improve* variant of
+// that language (source === destination, spec 1.7 §7.2). A translate variant also carries
+// the PDF's language as its source, but its entries hold the translation, so it must never
+// be read as — or extracted into — the source text.
+function isSourceTextVariant(c, pdfLang) {
+  if (!c) return false;
+  const lang = String(pdfLang || '').toLowerCase();
+  if (!lang) return false;
+  const src = String(c.sourceLanguage || '').toLowerCase();
+  const dst = String(c.destinationLanguage || '').toLowerCase();
+  return src === lang && dst === src;
+}
+// The most recently remembered source-text variant of a language. The active variant always
+// wins (spec §22: two variants with the same language are disambiguated by the active one).
+function findRememberedSourceVariant(language) {
   const want = String(language || '').toLowerCase();
   if (!want) return null;
-  const mapId = S.project?.mapId;
-  for (let i = S.variants.length - 1; i >= 0; i--) {
-    const c = S.variants[i].content;
+  const mapId = appState.content?.mapId;
+  for (let i = appState.variants.length - 1; i >= 0; i--) {
+    const c = appState.variants[i].content;
     if (mapId && c.mapId !== mapId) continue;
-    if (String(c.meta?.language || '').toLowerCase() === want) return c;
+    if (String(c.meta?.sourceLanguage || '').toLowerCase() !== want) continue;
+    if (String(c.meta?.destinationLanguage || '').toLowerCase() !== want) continue;
+    return c;
   }
   return null;
 }
-// Where translation reads from: the active variant when it is the PDF's language, else
-// a remembered variant of that language. `content` is null for the active one because
-// the live model (S.pmap) is the authority there.
+// Where translation reads from: the active variant when it is the PDF's source-text
+// variant, else a remembered source-text variant of that language. `content` is null for
+// the active one because the live model (appState.pmap) is the authority there.
 function sourceVariantFor(pdfLang) {
-  const active = S.project?.content;
-  if (active && String(active.language || '').toLowerCase() === String(pdfLang || '').toLowerCase()) {
-    return { active: true, content: null };
-  }
-  const remembered = findRememberedVariant(pdfLang);
+  if (isSourceTextVariant(appState.content, pdfLang)) return { active: true, content: null };
+  const remembered = findRememberedSourceVariant(pdfLang);
   return remembered ? { active: false, content: remembered } : null;
 }
 function activeVariantIsSource() {
-  return !!S.project && !!S.pdfLanguage
-    && String(S.project.content.language || '').toLowerCase() === String(S.pdfLanguage).toLowerCase();
+  return isSourceTextVariant(appState.content, appState.pdfLanguage);
+}
+// The language the source text is in. The active variant owns the language pair, so its
+// source language wins over the preferences default; before any variant exists there is
+// nothing to read and the preference (Auto by default) applies.
+function activeSourceLanguage() {
+  const src = String(appState.content?.sourceLanguage || '').toLowerCase();
+  return src || sourceLangValue();
+}
+// The language translation writes into. The active variant owns the language pair: a
+// translate variant (source ≠ destination) names its own target, whether it is on screen
+// or is the variant Translate returns to. A source-text/improve variant has no target of
+// its own, so the user's default target language applies.
+function activeTargetLanguage() {
+  const fallback = String(els.fTargetLang?.value || settings.targetLang || 'de').toLowerCase();
+  const c = appState.content;
+  if (!c) return fallback;
+  const src = String(c.sourceLanguage || '').toLowerCase();
+  const dst = String(c.destinationLanguage || '').toLowerCase();
+  return dst && dst !== src ? dst : fallback;
 }
 
 // Make a resolved project the current one, remembering exactly what was loaded so
@@ -997,41 +912,77 @@ function installProject(map, content) {
   // The awaiting-OCR classification is keyed by region id and describes the PDF under
   // those regions, so it survives a variant switch (same map) but not a different map
   // or document (spec 1.5 §20).
-  if (S.project && S.project.mapId !== resolved.map.mapId) S.awaitingOcr = new Set();
+  if (appState.content && appState.content.mapId !== resolved.map.mapId) appState.awaitingOcr = new Set();
   // Fill in the few optional metadata fields a file may omit, on the halves themselves, so
   // the saved baseline below is exactly what projectTexts() would write back.
   const m = resolved.map.meta || (resolved.map.meta = {});
   const c = resolved.content.meta || (resolved.content.meta = {});
-  m.name = m.name || defaultMapName(S.pdfName);
+  m.name = m.name || defaultMapName(appState.pdfName);
   m.label = m.label || 'Shared map';
   m.created = m.created || '';
-  c.name = c.name || defaultContentName(S.pdfName, c.language);
-  c.language = c.language || 'en';
+  c.name = c.name || defaultContentName(appState.pdfName, c.sourceLanguage, c.destinationLanguage);
+  c.sourceLanguage = c.sourceLanguage || 'en';
+  c.destinationLanguage = c.destinationLanguage || c.sourceLanguage;
   c.created = c.created || '';
-  S.pmap = resolved.merged;
-  S.project = {
+  appState.pmap = resolved.merged;
+  appState.mapMeta = { name: m.name, label: m.label, created: m.created };
+  // The variant names the PDF's own language (its source). Adopting it here means a
+  // variant loaded from a file is honoured exactly like one created in this session:
+  // extraction and translation use its language pair instead of asking again or falling
+  // back to the preferences default.
+  const variantLang = String(c.sourceLanguage || '').toLowerCase();
+  if (variantLang && appState.sha256 && variantLang !== String(appState.pdfLanguage || '').toLowerCase()) {
+    appState.pdfLanguage = variantLang;
+    saveDocPrefs();
+  }
+  appState.content = {
     mapId: resolved.map.mapId,
-    map: { name: m.name, label: m.label, created: m.created, modified: m.modified || '' },
-    content: {
-      name: c.name, language: c.language, label: c.label || '', created: c.created,
-      modified: c.modified || '', assets: resolved.content.assets || [],
-    },
-    saved: { map: canonical(resolved.map), content: canonical(resolved.content) },
+    name: c.name, sourceLanguage: c.sourceLanguage, destinationLanguage: c.destinationLanguage,
+    label: c.label || '', created: c.created, modified: c.modified || '',
+    assets: resolved.content.assets || [],
+    savedMap: canonical(resolved.map),
+    savedContent: canonical(resolved.content),
+    mapModified: m.modified || '',
   };
   rememberVariant(resolved.content);
-  rememberLensVariant();
-  S.dirtySides = { map: false, content: false };
+  appState.savedMap = null;
+  appState.dirtySides = { map: false, content: false };
   return resolved;
 }
 
-// An empty project for the PDF that is already open (map + one empty content variant).
-// The first page is part of the project from the start: adding it after installProject()
-// would make the brand-new map look unsaved (and a Close PDF right after opening would
-// have to ask about discarding changes nobody made).
-function emptyProjectForPdf(size) {
-  const { map, content } = createEmptyProject({ filename: S.pdfName, sha256: S.sha256, pageCount: viewer.pageCount });
+// Make a region map the current piece with no content variant loaded. Map and content are
+// separate loadable pieces: opening/creating a .pmap, or detecting regions before any
+// variant exists, leaves the app in this map-only state. It is still a real piece of work,
+// so projectTexts() keeps a baseline for it and Save writes the map on its own.
+function installMapOnly(map) {
+  const m = map.meta || (map.meta = {});
+  m.name = m.name || defaultMapName(appState.pdfName);
+  m.label = m.label || 'Shared map';
+  m.created = m.created || '';
+  // Normalize regions so content.background is properly structured (same as resolveProject does)
+  for (const p of map.pages) for (const r of p.regions) normalizeRegion(r);
+  appState.pmap = map;
+  appState.content = null;
+  // Sync the region-ID counter *before* capturing the saved baseline, so a freshly
+  // created map is not immediately flagged as unsaved (syncIdCounter mutates the map's
+  // internal counter state after canonical() would otherwise have snapshotted it).
+  syncIdCounter(appState.pmap);
+  appState.savedMap = canonical(map);
+  appState.mapModified = m.modified || '';
+  appState.mapMeta = { name: m.name, label: m.label, created: m.created };
+  appState.variants = [];
+  appState.awaitingOcr = new Set();
+  appState.dirtySides = { map: false, content: false };
+  history.clear(); appState.selected.clear(); appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
+}
+
+// An empty region map for the PDF that is already open. Map and content are separate
+// pieces: no content variant is created here — it is created or loaded on demand when
+// the user first needs one (Translate, Make Selectable, Add Text, Add Image).
+function emptyMapForPdf(size) {
+  const map = createMap({ filename: appState.pdfName, sha256: appState.sha256, pageCount: viewer.pageCount });
   if (size) ensurePage(map, 1, size.width, size.height);
-  installProject(map, content);
+  installMapOnly(map);
 }
 
 // Read a content variant file and check it is really for this map: a variant that names
@@ -1045,110 +996,216 @@ async function readContentFile(file, map) {
   return content;
 }
 
-// Switch the active content variant, keeping the shared map exactly as it is: the map
-// half is rebuilt from the current model, so geometry edits made while the previous
-// variant was active are not lost.
-// A remembered variant can outlive a region the user deleted while another variant was
-// active. The deleted region's entry is inert data (spec §22) and must not block the
-// switch; drop it from the in-memory copy. The file on disk keeps it until it is saved.
 function pruneVariantToMap(content, map) {
   const ids = new Set();
   for (const p of map.pages || []) for (const r of p.regions || []) ids.add(r.id);
   for (const id of Object.keys(content.regions || {})) if (!ids.has(id)) delete content.regions[id];
 }
 
-async function switchContentVariant(next, { guard = true, quiet = false } = {}) {
-  if (!S.pmap || !S.project) return false;
-  const { map, content, changed } = await projectTexts();
-  if (guard && changed.content
-    && !(await confirmDialog({
-      title: 'Unexported changes in this variant',
-      text: `“${S.project.content.name}” has unexported changes. They stay in this session’s memory and IndexedDB, but they are not written to a file unless you export them first.`,
-      confirmLabel: 'Switch anyway', cancelLabel: 'Keep editing',
-    }))) {
-    setStatus(`Kept ${S.project.content.name} (switch cancelled).`);
-    return false;
+// Ask to export or discard the current content variant's unsaved changes before it is
+// unloaded (replaced by a new or imported variant). "Export" writes the variant to a file
+// on the user's file system. Returns true if it is safe to proceed.
+async function confirmContentUnload() {
+  if (!appState.content) return true;
+  let changed;
+  try {
+    ({ changed } = await projectTexts());
+    if (!changed.content) return true; // nothing dirty
+  } catch {
+    // projectTexts() can throw if the resolved project can't be split. Fall back to the
+    // runtime dirty flags so we never silently proceed over unsaved work.
+    if (!(appState.dirtySides?.content)) return true;
   }
-  // Save the outgoing variant to IndexedDB before unloading (§22).
-  await flushSessionSave();
-  // Keep the outgoing variant available for variant-to-variant translation. A
-  // switch is not a delete: the content is still here, just not active.
-  rememberVariant(content);
-  pruneVariantToMap(next, map);
-  installProject(map, next);
-  history.clear(); S.selected.clear(); S.itemIndex = 0; S.itemSelected = false; clearItemSelection();
-  rememberLensVariant();
-  refreshChrome(); renderCurrent(); refreshMapInfo();
-  if (!quiet) setStatus(`Active content variant: ${S.project.content.name} (${S.project.content.language}).`);
-  scheduleSessionSave();
+  const what = await appDialog({
+    title: 'Export or Discard',
+    text: `Current content: “${appState.content.name}” has unsaved changes. Export it before switching content?`,
+    buttons: [
+      { value: 'export', label: 'Export', primary: true },
+      { value: 'discard', label: 'Discard' },
+    ],
+    cancelLabel: 'Cancel',
+  });
+  const choice = what ? what.value : null;
+  if (!choice) return false;
+  if (choice === 'export') {
+    await exportProjectPart('content');
+    try {
+      const { changed: again } = await projectTexts();
+      if (again.content) return false; // export failed
+    } catch { return false; }
+  }
   return true;
 }
 
-// Open a content variant from disk for the map that is already loaded.
-async function openContentFile(file) {
+// Replace the active content variant with an empty one. Prompts to export or discard the
+// current variant's unsaved changes first.
+async function newEmptyContentVariant() {
+  if (!(await confirmContentUnload())) return;
+  if (!appState.pmap || !appState.content) return;
+  const { map } = await projectTexts();
+  const next = emptyContentVariant({
+    mapId: map.mapId,
+    sourceLanguage: appState.pdfLanguage || 'en',
+    destinationLanguage: appState.pdfLanguage || 'en',
+    label: 'New variant',
+  });
+  pruneVariantToMap(next, map);
+  installProject(map, next);
+  history.clear(); appState.selected.clear(); appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
+  refreshChrome(); renderCurrent(); refreshMapInfo();
+  saveProjectNow();
+  setStatus(`New empty content variant: ${appState.content.name}.`);
+}
+
+// Import a content variant from the user's file system and make it active. Prompts to
+// export or discard the current variant's unsaved changes first. Validated via readContentFile
+// (must belong to the current map).
+async function importContentFile(file) {
+  if (!appState.pmap) { setStatus('Load a region map first.'); return; }
+  if (!(await confirmContentUnload())) return;
   try {
-    if (!S.pmap || !S.project) { setStatus(`Open the shared map first — “${file.name}” is a content variant.`); return; }
-    const { map } = await projectTexts();
-    await switchContentVariant(await readContentFile(file, map));
+    const { map, content: outgoing } = await projectTexts();
+    if (outgoing) rememberVariant(outgoing);
+    const content = await readContentFile(file, map);   // throws unless it belongs to this map
+    pruneVariantToMap(content, map);
+    installProject(map, content);
+    history.clear(); appState.selected.clear(); appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
+    refreshChrome(); renderCurrent(); refreshMapInfo();
+    saveProjectNow();
+    setStatus(`Loaded content variant “${content.meta.name}”.`);
   } catch (err) { setStatus('Cannot load content variant: ' + err.message); }
 }
 
-// A new language/variant of the same map. Empty by default; copying is offered as a
-// convenience, never as a claim of translation — copied text comes back flagged for
-// review (spec §3).
-async function createContentVariant(language, label, copy) {
-  const { map, content } = await projectTexts();
+// A new content variant for the same map: empty, with source/destination languages chosen
+// in the dialog. Prompts to save or discard the current variant first. Resolves true when
+// the variant was created, false when the user cancelled.
+async function createContentVariant(sourceLanguage, destinationLanguage, label) {
+  if (!(await confirmContentUnload())) return false;
+  if (!appState.pmap) return false;
+  const { map, content: outgoing } = await projectTexts();
+  // Keep the variant being replaced in the session cache: switching back is instant and an
+  // app-initiated source-variant switch (Translate) must not drop the target it will write.
+  if (outgoing) rememberVariant(outgoing);
   const next = emptyContentVariant({
-    mapId: map.mapId, language, label, name: defaultContentName(map.meta.name, language),
+    mapId: map.mapId, sourceLanguage, destinationLanguage, label,
+    name: defaultContentName(map.meta.name, sourceLanguage, destinationLanguage),
   });
-  if (copy) {
-    next.regions = JSON.parse(JSON.stringify(content.regions));
-    for (const entry of Object.values(next.regions)) for (const it of entry.items || []) if (it.type === 'text') it.needsReview = true;
-    next.assets = JSON.parse(JSON.stringify(content.assets || []));
+  // Preserve backgrounds from map-only regions: copy non-default backgrounds
+  // from the map's regions into the new content variant so they don't reset.
+  for (const p of map.pages) {
+    for (const r of p.regions) {
+      const bg = r.content?.background;
+      if (bg && bg !== DEFAULT_BACKGROUND) {
+        next.regions[r.id] = { background: bg, items: [] };
+      }
+    }
   }
-  if (await switchContentVariant(next)) setStatus(`Created content variant ${next.meta.name}${copy ? ' (copied, flagged for review)' : ''}.`);
+  pruneVariantToMap(next, map);
+  installProject(map, next);
+  // The source language chosen for a variant is the document's own language; remember it
+  // so the next extraction/translation does not ask for it again.
+  appState.pdfLanguage = sourceLanguage;
+  saveDocPrefs();
+  history.clear(); appState.selected.clear(); appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
+  refreshChrome(); renderCurrent(); refreshMapInfo();
+  saveProjectNow();
+  setStatus(`Created content variant ${next.meta.name} (${sourceLanguage} → ${destinationLanguage}).`);
+  return true;
 }
 
-// Switch to a content variant already loaded this session — the PDF-language source used
-// by translation, a target, or any other variant switched away from. Variants on disk
-// that were never opened are reached through File ▸ Open map or content… instead.
+// Prompt for a new content variant: choose source and destination language. When they are
+// equal this is an improve variant; otherwise a translate variant.
+// `showOpenFile` also offers loading a .content.json variant from disk; hidden by default
+// because "New content variant…" from the menu is create-only. The ensureContentFile path
+// shows this same dialog with the Open button instead of a separate load/create chooser.
+// Resolves true when a content variant was created/loaded, false when cancelled.
+async function promptNewContentVariant({ showOpenFile = false } = {}) {
+  if (!appState.pmap) { setStatus('Load a region map first.'); return false; }
+  return new Promise((resolve) => {
+    const modal = $('variant-modal');
+    const src = $('variant-source-lang'), dst = $('variant-dest-lang');
+    const opts = LANGUAGES.map(([code, name]) => `<option value="${code}">${name}</option>`).join('');
+    src.innerHTML = opts; dst.innerHTML = opts;
+    const defaultLang = appState.pdfLanguage || 'en';
+    // Source: the PDF's detected language (or English fallback).
+    src.value = [...src.options].some(o => o.value === defaultLang) ? defaultLang : 'en';
+    // Destination: the operating system's local language (or English fallback).
+    const sysLang = (navigator.language || 'en').split('-')[0].toLowerCase();
+    const dstLang = LANGUAGES.some(([c]) => c === sysLang) ? sysLang : 'en';
+    dst.value = [...dst.options].some(o => o.value === dstLang) ? dstLang : 'en';
+    $('variant-open-file').hidden = !showOpenFile;
+    modal.hidden = false; src.focus();
+    let settled = false;
+    const done = (ok) => { if (settled) return; settled = true; modal.hidden = true; resolve(ok); };
+    $('variant-create').onclick = async () => {
+      const sourceLanguage = src.value;
+      const destinationLanguage = dst.value;
+      const label = destinationLanguage === sourceLanguage
+        ? (src.options[src.selectedIndex]?.text || sourceLanguage)
+        : `${src.options[src.selectedIndex]?.text || sourceLanguage} → ${dst.options[dst.selectedIndex]?.text || destinationLanguage}`;
+      modal.hidden = true;
+      let created = false;
+      try { created = await createContentVariant(sourceLanguage, destinationLanguage, label); }
+      catch (err) { setStatus('Cannot create content variant: ' + err.message); }
+      done(!!created && !!appState.content);
+    };
+    $('variant-open-file').onclick = async () => {
+      modal.hidden = true;
+      if (await pickContentFile()) { done(true); return; }
+      // If loading was cancelled, re-open the dialog so the user can still create.
+      modal.hidden = false;
+    };
+    $('variant-cancel').onclick = () => { done(false); };
+  });
+}
+
+// Switch the active content variant to another variant of the same map. Prompts to save
+// or discard the current variant's unsaved changes first; the outgoing variant is kept in
+// the in-session cache (appState.variants) so switching back to it is instant.
+async function switchContentVariant(next, { guard = true } = {}) {
+  // App-initiated switches (Translating to the target variant after the source text was
+  // extracted) pass guard:false: the extraction is intentional and the outgoing variant
+  // stays in the in-session cache, so there is nothing to lose and nothing to ask.
+  if (guard && !(await confirmContentUnload())) return false;
+  if (!appState.pmap || !appState.content) return false;
+  const { map, content } = await projectTexts();
+  if (content) rememberVariant(content);   // keep the outgoing variant switchable-back
+  pruneVariantToMap(next, map);
+  installProject(map, next);
+  history.clear(); appState.selected.clear(); appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
+  refreshChrome(); renderCurrent(); refreshMapInfo();
+  saveProjectNow();
+  setStatus(`Switched to content variant “${appState.content.name}”.`);
+  return true;
+}
+
+// Prompt the user to pick a loaded variant and switch to it.
 async function promptSwitchContentVariant() {
-  if (!S.pmap || !S.project) { setStatus('Open a PDF first.'); return; }
-  const { content } = await projectTexts();
-  rememberVariant(content);   // the active variant's cache entry reflects the current edits
-  const active = S.project.content;
-  const choices = S.variants.filter(v => v.content.mapId === S.project.mapId);
-  const modal = $('picker-modal'), list = $('picker-list');
-  $('picker-title').textContent = 'Switch content variant';
-  list.innerHTML = '';
-  for (const v of choices) {
-    const c = v.content;
-    const isActive = c.meta.name === active.name && c.meta.created === active.created;
-    const isSource = !!S.pdfLanguage && String(c.meta.language || '').toLowerCase() === String(S.pdfLanguage).toLowerCase();
-    const role = isSource ? lensCopy().sourceVariant : 'translation';
-    const b = document.createElement('button');
-    b.textContent = `${c.meta.name} (${c.meta.language}) — ${role}${isActive ? ' — active' : ''}`;
-    b.disabled = isActive;
-    b.onclick = () => { modal.hidden = true; switchContentVariant(c); };
-    list.appendChild(b);
-  }
-  modal.hidden = false;
-  $('picker-cancel').textContent = 'Cancel';
-  $('picker-cancel').onclick = () => { modal.hidden = true; };
+  if (!appState.pmap || !appState.content) { setStatus('Open a PDF first.'); return; }
+  const mine = appState.variants.filter(v => v.content.mapId === appState.content?.mapId);
+  if (!mine.length) { setStatus('No other content variants are loaded.'); return; }
+  const list = mine.map(v => `<li>${v.content.meta.name} — ${v.content.meta.sourceLanguage} → ${v.content.meta.destinationLanguage}</li>`).join('');
+  const choice = await promptSelect({ title: 'Switch content variant', text: 'Pick the variant to make active:', options: mine.map(v => v.content.meta.name) });
+  if (!choice) return;
+  const target = mine.find(v => v.content.meta.name === choice);
+  if (target) await switchContentVariant(target.content);
 }
 
-function promptNewContentVariant() {
-  if (!S.pmap || !S.project) { setStatus('Open a PDF first.'); return; }
-  const modal = $('variant-modal'), lang = $('variant-lang'), label = $('variant-label'), copy = $('variant-copy');
-  lang.value = ''; label.value = ''; copy.checked = true;
-  modal.hidden = false; lang.focus();
-  $('variant-create').onclick = () => {
-    const language = lang.value.trim();
-    if (!/^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i.test(language)) { setStatus('Enter a language code like “de” or “pt-BR”.'); lang.focus(); return; }
-    modal.hidden = true;
-    createContentVariant(language, label.value.trim(), copy.checked);
-  };
-  $('variant-cancel').onclick = () => { modal.hidden = true; };
+// Open a content variant dropped onto the open PDF (or picked when several are present).
+async function openContentFile(file) {
+  if (!appState.pmap) { setStatus('Load a region map first.'); return; }
+  if (!(await confirmContentUnload())) return;
+  try {
+    const { map, content: outgoing } = await projectTexts();
+    if (outgoing) rememberVariant(outgoing);
+    const content = await readContentFile(file, map);   // throws unless it belongs to this map
+    pruneVariantToMap(content, map);
+    installProject(map, content);
+    history.clear(); appState.selected.clear(); appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
+    refreshChrome(); renderCurrent(); refreshMapInfo();
+    saveProjectNow();
+    setStatus(`Loaded content variant “${content.meta.name}”.`);
+  } catch (err) { setStatus('Cannot load content variant: ' + err.message); }
 }
 
 // ---- last session (IndexedDB) ----
@@ -1156,37 +1213,37 @@ function promptNewContentVariant() {
 // the source bytes, the shared map and the active content variant in IndexedDB, on this
 // machine only, and restore them on load. The source PDF is still never modified.
 let sessionActive = false;   // a PDF is open (or has been restored) — so saving is meaningful
-let sessionTimer = null;
 let sessionGen = 0;          // bumped by a new file open, to abandon a stale restore
 
-function scheduleSessionSave() {
-  if (sessionTimer) clearTimeout(sessionTimer);
-  sessionTimer = setTimeout(flushSessionSave, 600);
-}
-async function flushSessionSave() {
-  if (sessionTimer) { clearTimeout(sessionTimer); sessionTimer = null; }
-  if (!S.pmap || !S.project) return;
+// Save the current project state to IndexedDB immediately (no debounce).
+async function saveProjectNow() {
+  if (!sessionActive) return;
+  if (!appState.pmap) return;
   try {
     const { mapText, contentText, changed } = await projectTexts();
-    // The debounced pass is the natural moment to notice which half is unsaved — and it must
-    // keep happening even after File ▸ Forget saved session, which stops *storage*, not editing.
-    S.dirtySides = changed;
+    if (!sessionActive || !appState.pmap) return;
+    if (appState.content) {
+      await saveSessionProject({ mapJson: mapText, mapName: appState.pmap.meta?.name, contentJson: contentText, contentName: appState.content.name });
+    } else {
+      await saveSessionProject({ mapJson: mapText, mapName: appState.pmap.meta?.name, contentJson: null, contentName: null });
+    }
+    // dirtySides reflects "changed since last export to file system" — updated by
+    // saveProjectNow (autosave) and exportProjectPart (user-initiated export).
+    appState.dirtySides = changed;
     refreshMapInfo();
-    if (!sessionActive) return;
-    // Write to the slot the active variant belongs to. During a lens switch this is pinned
-    // to the outgoing lens until the switch completes, so the outgoing variant never lands
-    // in the incoming lens's slot.
-    await saveSessionProject({ slot: S.activeSlot || contentSlotForLens(S.lens), mapJson: mapText, mapName: S.project.map.name, contentJson: contentText, contentName: S.project.content.name });
-  } catch {}
+  } catch (e) {
+    console.error('IndexedDB session save failed:', e);
+    // Don't reschedule; the next mutation will retry.
+  }
 }
-// Every model mutation calls touch(); piggyback the (debounced) session save on it.
-function touch(pmap) { touchMap(pmap); scheduleSessionSave(); }
+
+// Every model mutation calls touch(); persist to IndexedDB immediately.
+function touch(pmap) { touchMap(pmap); saveProjectNow(); }
 
 async function clearSavedSession() {
-  // Stop autosave before deleting, so a debounced pass cannot write the session back
-  // after the user closed the document or asked to forget it.
+  // Stop any pending save before deleting, so a save that started before
+  // closePdf() cannot rewrite the session after the user closed the document.
   sessionActive = false;
-  if (sessionTimer) { clearTimeout(sessionTimer); sessionTimer = null; }
   try { await clearSession(); } catch {}
 }
 
@@ -1197,14 +1254,14 @@ async function openFileList(files) {
   const pdfs = files.filter(f => /\.pdf$/i.test(f.name));
   const maps = files.filter(f => isMapFileName(f.name));
   const contents = files.filter(f => isContentFileName(f.name));
-  if (!pdfs.length && (maps.length || contents.length) && S.pdfBytes) {
+  if (!pdfs.length && (maps.length || contents.length) && appState.pdfBytes) {
     // Dropped onto the open PDF: a map (with whatever content variant came along), or
     // just another content variant for the map that is already loaded.
-    if (maps.length === 1) await loadMapFile(maps[0], matchContentFiles(S.pdfName, files));
+    if (maps.length === 1) await openRegionFile(maps[0]);
     else if (maps.length > 1) {
       const pick = await pickFile(maps, { title: 'Multiple maps found — pick one', cancelLabel: 'Start empty' });
-      if (pick) await loadMapFile(pick, matchContentFiles(S.pdfName, files));
-      else startEmptyProject('Started with a new empty project.');
+      if (pick) await openRegionFile(pick);
+      else newRegionFile();
     } else if (contents.length === 1) await openContentFile(contents[0]);
     else if (contents.length > 1) {
       const pick = await pickFile(contents, { title: 'Multiple content variants found — pick one', cancelLabel: 'Keep the current variant' });
@@ -1216,45 +1273,97 @@ async function openFileList(files) {
   sessionGen++; // an explicitly opened file wins over a startup restore
   const pdf = pdfs[0];
   await loadPdfFile(pdf);
-  const mapCands = matchSidecars(pdf.name, maps);
-  const contentCands = matchContentFiles(pdf.name, contents);
-  if (mapCands.length === 1) await loadMapFile(mapCands[0], contentCands);
-  else if (mapCands.length > 1) {
-    const pick = await pickFile(mapCands, { title: 'Multiple maps found — pick one', cancelLabel: 'Start empty' });
-    if (pick) await loadMapFile(pick, contentCands);
-    else startEmptyProject('Started with a new empty project.');
-  } else if (contentCands.length) {
-    startEmptyProject('New empty project — a content variant needs the .pmap map it belongs to, so open both together.');
-  } else {
-    startEmptyProject('New empty project (map + one content variant).');
-  }
-  maybeApplyDefaultLens();
+  // Load the PDF directly without prompting. Region map and content variant are
+  // created/loaded on demand when the user first needs them (Detect, Add Polygon,
+  // Translate, Make Selectable, Add Text, Add Image). Paint page 1 so the document is
+  // visible straight away instead of waiting for a refresh.
+  renderCurrent();
+  startThumbs();
+  setStatus(`Opened ${pdf.name} (${viewer.pageCount} pages). Load a region file or create one to start working.`);
 }
 
-// A new empty project for the PDF that is already open, on screen and editable.
-async function startEmptyProject(msg) {
-  const s = await viewer.baseSize(1);
-  emptyProjectForPdf(s);
-  afterMapLoaded(msg || 'Started with a new empty project.');
+// Open a project zip saved by Export project: it holds the shared map plus the
+// content variant(s), all inside a folder named after the PDF. Loads the map,
+// then the improve content variant, then the translate content variant.
+// The PDF must already be open (the zip holds project files, not the PDF itself).
+async function openProject(file) {
+  if (!file) return;
+  if (!viewer.doc) { setStatus('Open a PDF first, then open the project zip.'); return; }
+  const buf = await file.arrayBuffer();
+  const JSZip = await getJSZip();
+  const zip = new JSZip();
+  await zip.loadAsync(buf);
+
+  let mapEntry = null;
+  const contentEntries = [];
+  for (const [name, entry] of Object.entries(zip.files)) {
+    if (entry.dir) continue;
+    const base = name.replace(/^.*\//, ''); // strip folder prefix
+    if (isMapFileName(base)) mapEntry = entry;
+    else if (isContentFileName(base)) contentEntries.push({ name: base, entry });
+  }
+
+  if (!mapEntry) { setStatus('No .pmap map found in the project zip.'); return; }
+
+  const mapText = await mapEntry.async('text');
+  const kind = detectFileKind(JSON.parse(mapText));
+  if (kind === 'content') { setStatus('The zip contains a content variant but no .pmap map.'); return; }
+  if (kind === 'map-legacy') {
+    setStatus('This is a v1.1 single-file map — split it first with tools/pmap-migrate.mjs.');
+    return;
+  }
+  const map = parseMap(mapText);
+  const errs = [];
+  if (map.source?.sha256 && map.source.sha256 !== appState.sha256) errs.push(`hash differs (map for ${map.source.filename || 'another file'})`);
+  if (map.source?.page_count && map.source.page_count !== viewer.pageCount) errs.push(`page count ${map.source.page_count} vs ${viewer.pageCount}`);
+  if (errs.length) {
+    const ok = await confirmMismatch(`This map “${mapEntry.name}” was made for a different file: ${errs.join('; ')}.`);
+    if (!ok) { setStatus('Project load cancelled (mismatch).'); return; }
+  }
+
+  let content = null;
+  const otherContents = [];
+  for (const { name, entry } of contentEntries) {
+    try {
+      const text = await entry.async('text');
+      const parsed = parseContent(text);
+      if (parsed.mapId !== map.mapId) continue; // belongs to another map
+      if (!content) content = parsed; // first content variant becomes active
+      else otherContents.push({ name, content: parsed });
+    } catch { /* skip unreadable content files */ }
+  }
+
+  if (content) {
+    installProject(map, content);
+  } else {
+    // Map-only project zip: the map loads on its own; a content variant is created or
+    // loaded on demand when the user first needs it.
+    installMapOnly(map);
+  }
+
+  // Remember the remaining variants in-session so they appear in the switch-variant dialog.
+  // They live as their own .content.json files; only the active variant is autosaved to
+  // IndexedDB, so nothing is stashed into slots here.
+  for (const { content: c } of otherContents) rememberVariant(c);
+
+  afterMapLoaded(`Loaded project from ${file.name}: ${map.meta?.name || mapEntry.name}${content ? ` + ${content.meta.name}` : ' (no content variant yet)'}${otherContents.length ? ` (${otherContents.length} variant${otherContents.length === 1 ? '' : 's'} also loaded)` : ''}.`);
 }
 
 async function loadPdfFile(file) {
   const buf = await file.arrayBuffer();
-  S.pdfName = file.name;
+  appState.pdfName = file.name;
   setStatus('Hashing PDF…');
   await new Promise(r => setTimeout(r, 0)); // let the status paint before the work
   // Hash and open concurrently. viewer.load() makes its own copy, so both can share `buf`
   // without extra full-file copies and without one detaching the other's data.
   const [sha] = await Promise.all([sha256Hex(buf), viewer.load(buf)]);
-  S.sha256 = sha;
-  S.pdfBytes = buf;
+  appState.sha256 = sha;
+  appState.pdfBytes = buf;
   const prefs = loadDocPrefs(sha);
-  S.pdfLanguage = prefs.pdfLanguage || null;
-  S.lens = LENS_COPY[prefs.lens] ? prefs.lens : 'translate';
-  S.lensVariant = { translate: null, improve: null };
-  S.variants = [];
-  S.page = 1; S.selected.clear(); history.clear(); clearItemSelection();
-  S.zoom = 1.2;
+  appState.pdfLanguage = prefs.pdfLanguage || null;
+  appState.variants = [];
+  appState.page = 1; appState.selected.clear(); history.clear(); clearItemSelection();
+  appState.zoom = 1.2;
   // A new document must always repaint, even when it lands on the same page/zoom as the
   // previous one (otherwise the canvas would keep showing the old file's page).
   lastPdfRender = { page: 0, zoom: 0 };
@@ -1265,6 +1374,119 @@ async function loadPdfFile(file) {
   sessionActive = true;
   try { await saveSessionPdf(file.name, buf, sha); } catch {}
   setStatus(`Opened ${file.name} (${viewer.pageCount} pages).`);
+}
+
+// Prompt to export/discard the current map's unsaved changes before replacing it.
+async function confirmUnloadMap() {
+  if (!appState.pmap) return true;
+  let changed;
+  try {
+    ({ changed } = await projectTexts());
+    if (!changed.map) return true; // nothing dirty
+  } catch {
+    // projectTexts() can throw if the resolved project can't be split. Fall back to the
+    // runtime dirty flags so we never silently proceed over unsaved work.
+    if (!(appState.dirtySides?.map)) return true;
+  }
+  const what = await appDialog({
+    title: 'Export or Discard',
+    text: `The region map for “${appState.pdfName || 'this PDF'}” has not been exported yet. Export it before replacing the map?`,
+    buttons: [
+      { value: 'export', label: 'Export', primary: true },
+      { value: 'discard', label: 'Discard' },
+    ],
+    cancelLabel: 'Cancel',
+  });
+  const choice = what ? what.value : null;
+  if (!choice) return false;
+  if (choice === 'export') {
+    await exportProjectPart('map');
+    try {
+      const { changed: again } = await projectTexts();
+      if (again.map) return false; // export failed
+    } catch { return false; }
+  }
+  return true;
+}
+
+// One prompt when both the map and the content variant have unsaved changes: the user
+// either exports both halves together (one download) or discards both. Only the sides that
+// are actually dirty are mentioned; a single dirty side keeps its own dedicated dialog.
+async function confirmUnloadProject() {
+  if (!appState.pmap) return true;
+  let changed;
+  try {
+    ({ changed } = await projectTexts());
+    appState.dirtySides = changed;
+    if (!changed.map && (!appState.content || !changed.content)) return true; // nothing dirty
+  } catch {
+    // projectTexts() can throw if the resolved project can't be split. Fall back to the
+    // runtime dirty flags so we never silently close over unsaved work.
+    if (!(appState.dirtySides?.map || appState.dirtySides?.content)) return true;
+  }
+  const mapDirty = appState.pmap && changed.map;
+  const contentDirty = appState.content && changed.content;
+  if (!mapDirty && !contentDirty) return true;
+  // Single dirty side keeps its own dialog — the combined one is only for both.
+  if (contentDirty && !mapDirty) return confirmContentUnload();
+  if (mapDirty && !contentDirty) return confirmUnloadMap();
+  const what = await appDialog({
+    title: 'Export or Discard',
+    text: `Both the region map for “${appState.pdfName || 'this PDF'}” and the content variant “${appState.content.name}” have unsaved changes. Export both before closing?`,
+    buttons: [
+      { value: 'export', label: 'Export', primary: true },
+      { value: 'discard', label: 'Discard' },
+    ],
+    cancelLabel: 'Cancel',
+  });
+  const choice = what ? what.value : null;
+  if (!choice) return false;
+  if (choice === 'export') {
+    await exportProjectPart('both');
+    try {
+      const { changed: again } = await projectTexts();
+      appState.dirtySides = again;
+      if (again.map || again.content) return false; // export failed
+    } catch { return false; }
+  }
+  return true;
+}
+
+// Create a brand-new empty region map for the current PDF. Prompts to export/discard
+// the current map and content if either has unsaved changes.
+async function newRegionFile() {
+  if (!viewer.doc) { setStatus('Open a PDF first.'); return; }
+  if (!(await confirmUnloadProject())) return;
+  const s = await viewer.baseSize(1);
+  emptyMapForPdf(s);
+  afterMapLoaded('New empty region map created.');
+}
+
+// Load a .pmap region map file for the current PDF. Prompts to export/discard the
+// current map and content if either has unsaved changes. Content is dropped (the map
+// alone is loaded; a content variant can be created/loaded on demand).
+async function openRegionFile(file) {
+  if (!viewer.doc) { setStatus('Open a PDF first.'); return; }
+  if (!(await confirmUnloadProject())) return;
+  try {
+    const text = await file.text();
+    const kind = detectFileKind(JSON.parse(text));
+    if (kind === 'content') { setStatus(`“${file.name}” is a content variant, not a map — open the .pmap it belongs to.`); return; }
+    if (kind === 'map-legacy') {
+      throw new Error('this is a v1.1 single-file map. Split it with tools/pmap-migrate.mjs first.');
+    }
+    const map = parseMap(text);
+    const errs = [];
+    if (map.source?.sha256 && map.source.sha256 !== appState.sha256) errs.push(`hash differs (map for ${map.source.filename || 'another file'})`);
+    if (map.source?.page_count && map.source.page_count !== viewer.pageCount) errs.push(`page count ${map.source.page_count} vs ${viewer.pageCount}`);
+    if (errs.length) {
+      const ok = await confirmMismatch(`This map “${file.name}” was made for a different file: ${errs.join('; ')}.`);
+      if (!ok) { setStatus('Map load cancelled (mismatch).'); return; }
+    }
+    // Drop any current content: the map alone is loaded with no content variant.
+    installMapOnly(map);
+    afterMapLoaded(`Loaded region map “${map.meta?.name || file.name}” (no content variant yet).`);
+  } catch (err) { setStatus('Cannot load map: ' + err.message); }
 }
 
 // Load a v2 shared map (plus, when the selection brought one, its content variant).
@@ -1279,16 +1501,15 @@ async function loadMapFile(file, contentFiles = []) {
     }
     const map = parseMap(text);
     const errs = [];
-    if (map.source?.sha256 && map.source.sha256 !== S.sha256) errs.push(`hash differs (map for ${map.source.filename || 'another file'})`);
+    if (map.source?.sha256 && map.source.sha256 !== appState.sha256) errs.push(`hash differs (map for ${map.source.filename || 'another file'})`);
     if (map.source?.page_count && map.source.page_count !== viewer.pageCount) errs.push(`page count ${map.source.page_count} vs ${viewer.pageCount}`);
     if (errs.length) {
       const ok = await confirmMismatch(`This map “${file.name}” was made for a different file: ${errs.join('; ')}.`);
       if (!ok) { setStatus('Map load cancelled (mismatch).'); return; }
     }
-    // The content variant that came with the map, or an empty one to start from: the map
-    // is usable either way (regions without content simply show the source page). A
-    // co-selected variant that belongs to another map is *not* allowed to sink the map:
-    // it is dropped with a note, and the region set stays loaded and editable.
+    // The content variant that came with the map (if any), or none to start from. Content
+    // is created or loaded on demand when the user first needs it (Translate, Make Selectable,
+    // Add Text, Add Image).
     let content = null;
     let why = '';
     try {
@@ -1298,21 +1519,98 @@ async function loadMapFile(file, contentFiles = []) {
         if (pick) content = await readContentFile(pick, map);
       }
     } catch (err) { why = ` — ${err.message}, so it was not loaded`; }
-    installProject(map, content || emptyContentVariant({ mapId: map.mapId, language: 'en', label: 'Base map', name: defaultContentName(map.meta?.name || file.name, 'en') }));
-    afterMapLoaded(`Loaded ${map.meta?.name || file.name}${content ? ` + ${S.project.content.name}` : ' (no content variant — regions show the source page)'}${why}.`);
+    if (content) {
+      installProject(map, content);
+      afterMapLoaded(`Loaded ${map.meta?.name || file.name} + ${appState.content.name}${why}.`);
+    } else {
+      installMapOnly(map);
+      afterMapLoaded(`Loaded ${map.meta?.name || file.name} (no content variant yet)${why}.`);
+    }
   } catch (err) { setStatus('Cannot load map: ' + err.message); }
 }
 
+// ---- region map / content variant ensure dialogs ----
+
+// Pick a .pmap file via the hidden input and await loading. Resolves true if a map
+// was loaded, false if cancelled or failed. Temporarily replaces the input's onchange
+// so the file is loaded through openRegionFile() (not the fire-and-forget openFileList).
+async function pickRegionFile() {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const originalOnChange = els.filePmap.onchange;
+    els.filePmap.onchange = null;
+    const onChange = async (e) => {
+      if (resolved) return;
+      resolved = true;
+      els.filePmap.removeEventListener('change', onChange);
+      const f = e.target.files?.[0] || null;
+      els.filePmap.value = '';
+      els.filePmap.onchange = originalOnChange;
+      if (f) {
+        try { await openRegionFile(f); } catch {}
+      }
+      resolve(!!appState.pmap);
+    };
+    els.filePmap.addEventListener('change', onChange, { once: true });
+    els.filePmap.click();
+    setTimeout(() => { if (!resolved) { resolved = true; els.filePmap.removeEventListener('change', onChange); els.filePmap.onchange = originalOnChange; resolve(false); } }, 30000);
+  });
+}
+
+// Pick a .content.json file via the hidden input and await loading. Resolves true if
+// a content variant was loaded, false if cancelled or failed.
+async function pickContentFile() {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const originalOnChange = els.fileContentVariant.onchange;
+    els.fileContentVariant.onchange = null;
+    const onChange = async (e) => {
+      if (resolved) return;
+      resolved = true;
+      els.fileContentVariant.removeEventListener('change', onChange);
+      const f = e.target.files?.[0] || null;
+      els.fileContentVariant.value = '';
+      els.fileContentVariant.onchange = originalOnChange;
+      if (f) {
+        try { await openContentFile(f); } catch {}
+      }
+      resolve(!!appState.content);
+    };
+    els.fileContentVariant.addEventListener('change', onChange, { once: true });
+    els.fileContentVariant.click();
+    setTimeout(() => { if (!resolved) { resolved = true; els.fileContentVariant.removeEventListener('change', onChange); els.fileContentVariant.onchange = originalOnChange; resolve(false); } }, 30000);
+  });
+}
+
+// Ensure a region map is loaded before an action that needs regions. Prompts to create
+// or load one when none exists.
+async function ensureRegionFile() {
+  if (appState.pmap) return true;
+  // No map yet — create an empty one automatically instead of asking. Users who want to
+  // load an existing .pmap use File ▸ Open region file… (pickRegionFile) instead.
+  await newRegionFile();
+  return !!appState.pmap;
+}
+
+// Ensure a content variant is loaded before an action that needs content. Requires a
+// region map first. When none exists it shows the New content variant dialog directly —
+// language pickers plus Create / Open content file… / Cancel — with no extra chooser.
+async function ensureContentFile() {
+  if (appState.content) return true;
+  if (!appState.pmap && !(await ensureRegionFile())) return false;
+  if (!appState.pmap) return false;
+  return await promptNewContentVariant({ showOpenFile: true });
+}
+
 function afterMapLoaded(msg) {
-  syncIdCounter(S.pmap);
-  history.clear(); S.selected.clear(); S.itemIndex = 0;
+  syncIdCounter(appState.pmap);
+  history.clear(); appState.selected.clear(); appState.itemIndex = 0;
   setStatus(msg);
-  applyLensChrome();
   gotoPage(1);
   // The map is on screen now; fill the page rail in the background (and only for a
   // document we have not built thumbs for yet).
   startThumbs();
-  scheduleSessionSave();
+  saveProjectNow();
 }
 
 // Re-open the last session from IndexedDB at startup. Best effort: any failure
@@ -1328,11 +1626,9 @@ async function restoreSession() {
   try {
     [pdf, map] = await Promise.all([loadSessionPdf(), loadSessionMap()]);
     if (pdf?.bytes) {
-      // The content variant is loaded from the slot of the lens that was active when the
-      // session was saved (the remembered lens), so a refresh returns to the same workflow.
-      const prefs = loadDocPrefs(pdf.sha256 || '');
-      const lens = LENS_COPY[prefs.lens] ? prefs.lens : 'translate';
-      content = await loadSessionContent(contentSlotForLens(lens));
+      // The content variant is loaded from the single session slot — its source/destination
+      // language decides improve vs translate at restore time.
+      content = await loadSessionContent();
     }
   } catch { return false; }
   if (!pdf?.bytes || gen !== sessionGen) return false;
@@ -1340,15 +1636,13 @@ async function restoreSession() {
     setStatus(`Restoring your last session (${pdf.name})…`);
     await viewer.load(pdf.bytes);
     if (gen !== sessionGen) return false;
-    S.pdfName = pdf.name || 'document.pdf';
-    S.pdfBytes = pdf.bytes;
-    S.sha256 = pdf.sha256 || await sha256Hex(pdf.bytes);
-    const prefs = loadDocPrefs(S.sha256);
-    S.pdfLanguage = prefs.pdfLanguage || null;
-    S.lens = LENS_COPY[prefs.lens] ? prefs.lens : 'translate';
-    S.lensVariant = { translate: null, improve: null };
-    S.variants = [];
-    S.page = 1; S.selected.clear(); history.clear(); S.zoom = 1.2; clearItemSelection();
+    appState.pdfName = pdf.name || 'document.pdf';
+    appState.pdfBytes = pdf.bytes;
+    appState.sha256 = pdf.sha256 || await sha256Hex(pdf.bytes);
+    const prefs = loadDocPrefs(appState.sha256);
+    appState.pdfLanguage = prefs.pdfLanguage || null;
+    appState.variants = [];
+    appState.page = 1; appState.selected.clear(); history.clear(); appState.zoom = 1.2; clearItemSelection();
     lastPdfRender = { page: 0, zoom: 0 };
     docGen++;
     sessionActive = true;
@@ -1367,25 +1661,49 @@ async function restoreSession() {
       } catch { restoredMap = null; }
     }
     if (restoredMap) {
-      installProject(restoredMap, restoredContent || emptyContentVariant({ mapId: restoredMap.mapId, language: 'en', label: 'Base map', name: defaultContentName(S.pdfName, 'en') }));
+      if (restoredContent) {
+        installProject(restoredMap, restoredContent);
+        // A restored project has not been exported in this session: the map and
+        // content variant carry unsaved changes until the user exports them. Do not
+        // let installProject()'s canonical baselines make them look "saved".
+        appState.content.savedMap = null;
+        appState.content.savedContent = null;
+        appState.dirtySides = { map: true, content: true };
+      } else {
+        // Map-only restore: no content variant was saved (or it was unreadable). The map
+        // comes back on its own; a content variant is created/loaded on demand.
+        installMapOnly(restoredMap);
+        // Same as above: a restored map has not been exported in this session.
+        appState.savedMap = null;
+        appState.dirtySides = { map: true, content: false };
+      }
     } else {
-      S.pmap = null;
-      const size = await viewer.baseSize(1);
-      emptyProjectForPdf(size);
-      note = '';
+      // No saved map — don't fabricate an empty project. The user creates a map
+      // on demand (New region file / Open region file / Detect).
+      appState.pmap = null;
+      appState.content = null;
+      appState.variants = [];
+      appState.savedMap = null; appState.mapModified = '';
+      appState.dirtySides = { map: false, content: false };
+      renderCurrent();
+      startThumbs();
+      if (gen !== sessionGen) return false;
+      setStatus(`Restored ${appState.pdfName} from your last session — no map was saved.${note}`);
+      return true;
     }
     if (gen !== sessionGen) return false;
     // Paints page 1 with its regions and kicks off the thumbnail build behind it.
-    afterMapLoaded(`Restored ${S.pdfName}${restoredMap ? ` + ${S.project.map.name} + ${S.project.content.name}` : ''} from your last session${note}.`);
+    afterMapLoaded(`Restored ${appState.pdfName}${restoredMap ? ` + ${appState.pmap.meta?.name}${appState.content ? ` + ${appState.content.name}` : ' (no content variant yet)'}` : ''} from your last session${note}.`);
     return true;
   } catch (e) {
     // Never leave a half-restored app behind: whatever failed, drop back to the state a
     // fresh load would be in (empty map, empty overlay, nothing rendered) so the user can
     // still open the file by hand, and say what happened in the status bar.
     sessionActive = false;
-    S.pmap = null;
-    S.project = null;
-    S.dirtySides = { map: false, content: false };
+    appState.pmap = null;
+    appState.content = null;
+    appState.savedMap = null; appState.mapModified = '';
+    appState.dirtySides = { map: false, content: false };
     lastPdfRender = { page: 0, zoom: 0 };
     try { overlay.clear(); } catch {}
     if (viewer.doc) renderCurrent();
@@ -1567,15 +1885,15 @@ function startThumbs() {
 }
 async function gotoPage(n) {
   if (!viewer.doc) return;
-  S.page = Math.max(1, Math.min(viewer.pageCount, n));
-  S.selected.clear(); S.itemSelected = false; clearItemSelection();
+  appState.page = Math.max(1, Math.min(viewer.pageCount, n));
+  appState.selected.clear(); appState.itemSelected = false; clearItemSelection();
   await renderCurrent();
 }
-function setZoom(z) { S.zoom = Math.max(0.2, Math.min(5, z)); renderCurrent(); }
+function setZoom(z) { appState.zoom = Math.max(0.2, Math.min(5, z)); renderCurrent(); }
 async function fitZoom() {
   const wrap = $('stage-wrap');
-  const s = await viewer.baseSize(S.page);
-  S.zoom = Math.max(0.2, Math.min(3, (wrap.clientWidth - 60) / s.width));
+  const s = await viewer.baseSize(appState.page);
+  appState.zoom = Math.max(0.2, Math.min(3, (wrap.clientWidth - 60) / s.width));
   renderCurrent();
 }
 
@@ -1589,33 +1907,43 @@ function renderCurrent() {
 async function doRenderCurrent() {
   if (!viewer.doc) return;
   els.pdfCanvas.hidden = false;
-  const size = await viewer.baseSize(S.page);
+  const size = await viewer.baseSize(appState.page);
   stage.setPageSize(size.width, size.height);
   // Skip expensive pdf.js re-render when page+zoom unchanged (selection, drag preview, typing).
-  if (lastPdfRender.page !== S.page || lastPdfRender.zoom !== S.zoom) {
-    await viewer.renderTo(els.pdfCanvas, S.page, S.zoom);
-    try { await viewer.renderTextLayer(els.textLayer, S.page, S.zoom); } catch { els.textLayer.innerHTML = ''; }
-    lastPdfRender = { page: S.page, zoom: S.zoom };
+  if (lastPdfRender.page !== appState.page || lastPdfRender.zoom !== appState.zoom) {
+    await viewer.renderTo(els.pdfCanvas, appState.page, appState.zoom);
+    try { await viewer.renderTextLayer(els.textLayer, appState.page, appState.zoom); } catch { els.textLayer.innerHTML = ''; }
+    lastPdfRender = { page: appState.page, zoom: appState.zoom };
+  }
+  // 🚨 CRITICAL FIX FOR INP: Yield to the browser here!
+  // This allows the browser to paint the mode button's visual state change
+  // BEFORE we block the main thread with heavy overlay rendering and DOM updates.
+  if ('scheduler' in globalThis && typeof scheduler.yield === 'function') {
+    await scheduler.yield();
+  } else if (typeof requestAnimationFrame === 'function') {
+    await new Promise(resolve => requestAnimationFrame(resolve));
+  } else {
+    await new Promise(resolve => setTimeout(resolve, 0));
   }
   stage.applyToSvg(els.svg);
-  els.svg.style.width = `${size.width * S.zoom}px`;
-  els.svg.style.height = `${size.height * S.zoom}px`;
-  els.textLayer.style.width = `${size.width * S.zoom}px`;
-  els.textLayer.style.height = `${size.height * S.zoom}px`;
+  els.svg.style.width = `${size.width * appState.zoom}px`;
+  els.svg.style.height = `${size.height * appState.zoom}px`;
+  els.textLayer.style.width = `${size.width * appState.zoom}px`;
+  els.textLayer.style.height = `${size.height * appState.zoom}px`;
   applyTextLayerInteractivity();
-  els.zoomLabel.textContent = Math.round(S.zoom * 100) + '%';
-  document.querySelectorAll('#thumbs canvas').forEach(c => c.classList.toggle('active', +c.dataset.page === S.page));
-  if (!S.pmap) { refreshChrome(); return; }
-  ensurePage(S.pmap, S.page, size.width, size.height);
-  const pg = getPage(S.pmap, S.page);
+  els.zoomLabel.textContent = Math.round(appState.zoom * 100) + '%';
+  document.querySelectorAll('#thumbs canvas').forEach(c => c.classList.toggle('active', +c.dataset.page === appState.page));
+  if (!appState.pmap) { refreshChrome(); return; }
+  ensurePage(appState.pmap, appState.page, size.width, size.height);
+  const pg = getPage(appState.pmap, appState.page);
   let regions = pg ? pg.regions : [];
-  if (S.dragPreview) regions = applyDragPreview(regions);
-  const itemBoxes = inContent() && !S.draft.length
-    ? regions.filter(r => S.selected.has(r.id)).flatMap(r => buildItemBoxes(r))
+  if (appState.dragPreview) regions = applyDragPreview(regions);
+  const itemBoxes = inContent() && !appState.draft.length
+    ? regions.filter(r => appState.selected.has(r.id)).flatMap(r => buildItemBoxes(r))
     : [];
   const digitalSource = digitalSourceState();
   const digitalFilled = new Set(regions.filter(r => hasDigitalContent(r, digitalSource)).map(r => r.id));
-  overlay.render({ regions, selectedIds: S.selected, draftPoints: S.draft, draftCursor: inRegion() ? S.cursor : null, splitLine: S.splitPts, mode: S.mode, tool: S.tool, itemBoxes, selectedVertex: S.selectedVertex, marquee: isEditMode() ? S.marquee : null, clipWarn: clippedRegions(regions), showDigital: S.showDigital, digitalFilled, awaitingOcr: S.awaitingOcr, statusTags: { filled: lensCopy().filledTag, missing: lensCopy().missingTag } });
+  overlay.render({ regions, selectedIds: appState.selected, draftPoints: appState.draft, draftCursor: inRegion() ? appState.cursor : null, splitLine: appState.splitPts, mode: appState.mode, tool: appState.tool, itemBoxes, selectedVertex: appState.selectedVertex, marquee: isEditMode() ? appState.marquee : null, clipWarn: clippedRegions(regions), showDigital: appState.showDigital, digitalFilled, awaitingOcr: appState.awaitingOcr, statusTags: { filled: workflowCopy().filledTag, missing: workflowCopy().missingTag } });
   // Preview canvas. Preview mode masks every region and draws its items. The two editing modes
   // render the very same thing (mask + items) for every region *except* the one being
   // edited, whose mask is dropped (maskExcept) so the source PDF stays visible under the
@@ -1624,12 +1952,12 @@ async function doRenderCurrent() {
   const maskedRegions = regions.filter(regionIsMasked);
   // Skipped while a drag/marquee/draft is previewing: no region's content changes under
   // the pointer, and the canvas is rebuilt as soon as the gesture ends.
-  const midGesture = !!(S.dragPreview || S.marquee || S.draft.length);
+  const midGesture = !!(appState.dragPreview || appState.marquee || appState.draft.length);
   const clearViewCanvas = () => { try { els.viewCanvas.getContext('2d').clearRect(0, 0, els.viewCanvas.width, els.viewCanvas.height); } catch {} };
-  if (S.mode === 'view') {
+  if (appState.mode === 'view') {
     els.viewCanvas.hidden = false;
     els.viewCanvas.style.left = '0px'; els.viewCanvas.style.top = '0px';
-    renderView({ viewCanvas: els.viewCanvas, baseCanvas: els.pdfCanvas, regions, zoom: S.zoom, mask: true });
+    renderView({ viewCanvas: els.viewCanvas, baseCanvas: els.pdfCanvas, regions, zoom: appState.zoom, mask: true });
   } else if (isEditMode()) {
     els.viewCanvas.hidden = maskedRegions.length === 0;
     if (maskedRegions.length && !midGesture) {
@@ -1637,7 +1965,12 @@ async function doRenderCurrent() {
       // The region being edited stays transparent so the user sees the page under it — except
       // while the background colour picker has focus, when the mask is previewed on it so the
       // chosen colour can actually be seen (macOS fires `change` only when the panel closes).
-      renderView({ viewCanvas: els.viewCanvas, baseCanvas: els.pdfCanvas, regions, zoom: S.zoom, mask: true, maskExcept: S.bgPreview ? new Set() : S.selected });
+      // In the editing modes the region being edited normally stays transparent so the page
+      // shows through — but a region whose background was just set must keep showing its
+      // colour (else picking a background looks like it reverted). So a selected region is
+      // masked unless its background is still the default. Backgrounds are tinted (alpha 0.3)
+      // here so the source page stays faintly visible; Preview mode draws them opaque (alpha 1).
+      renderView({ viewCanvas: els.viewCanvas, baseCanvas: els.pdfCanvas, regions, zoom: appState.zoom, mask: true, maskExcept: appState.bgPreview ? new Set() : new Set([...appState.selected].filter(id => { const r = regionById(id); return r && isDefaultBackground(r.content?.background); })), alpha: 0.3 });
     } else {
       clearViewCanvas();
     }
@@ -1651,20 +1984,19 @@ async function doRenderCurrent() {
 // PDF text selection is only enabled in the dedicated Original mode, so it
 // never fights the polygon editing interactions.
 function applyTextLayerInteractivity() {
-  const active = S.mode === 'text';
+  const active = appState.mode === 'text';
   els.textLayer.style.pointerEvents = active ? 'auto' : 'none';
   els.textLayer.style.userSelect = active ? 'text' : 'none';
 }
 
-function rerender() { renderCurrent(); }
 
 function refreshChrome() {
-  const armed = inRegion() && S.tool === 'polygon';
-  const drafting = S.draft.length > 0 && inRegion();
+  const armed = inRegion() && appState.tool === 'polygon';
+  const drafting = appState.draft.length > 0 && inRegion();
   const hint = $('draw-hint');
   hint.hidden = !(drafting || armed);
-  if (drafting) hint.textContent = `Add polygon — drawing page ${S.page}: click to add points · Enter/double-click to close (${S.draft.length} pts) · Esc cancels`;
-  else if (armed) hint.textContent = `Add polygon — page ${S.page}: click to place the first point · Esc cancels`;
+  if (drafting) hint.textContent = `Add polygon — drawing page ${appState.page}: click to add points · Enter/double-click to close (${appState.draft.length} pts) · Esc cancels`;
+  else if (armed) hint.textContent = `Add polygon — page ${appState.page}: click to place the first point · Esc cancels`;
   if (els.stage) els.stage.style.cursor = armed ? 'crosshair' : '';
   refreshModeIndicator();
   refreshContextTools();
@@ -1682,12 +2014,12 @@ function refreshChrome() {
 // set, and each entry disappears once the state it describes has moved on.
 function nextActionItems() {
   const steps = [];
-  const c = lensCopy();
+  const c = workflowCopy();
   if (!viewer.doc) {
     steps.push({ text: 'Open a PDF to start (Ctrl/Cmd+O, or drop it here).', btn: ['Open PDF', () => els.filePdf.click()] });
     return steps;
   }
-  const pg = S.pmap ? getPage(S.pmap, S.page) : null;
+  const pg = appState.pmap ? getPage(appState.pmap, appState.page) : null;
   const regions = pg?.regions || [];
   const textRegions = regions.filter(r => !isDetectedImage(r));
   const sel = selectedRegions().filter(r => !isDetectedImage(r));
@@ -1695,17 +2027,17 @@ function nextActionItems() {
   // 1 — map the page
   if (!regions.length) {
     steps.push({
-      text: `Page ${S.page} has no regions yet. Detect them, or draw one (P).`,
+      text: `Page ${appState.page} has no regions yet. Detect them, or draw one (P).`,
       btn: ['Detect (D)', () => detectRegionsOnPage()],
     });
-  } else if (!S.selected.size) {
+  } else if (!appState.selected.size) {
     if (!isEditMode()) {
       steps.push({ text: 'Switch to an editing mode to work on this page (Tab cycles modes).', btn: ['Region mode', () => setMode('region')] });
     } else {
       const withoutSource = textRegions.filter(r => !firstTextItem(r.content)).length;
       if (withoutSource) {
         steps.push({
-          text: `No region selected. Click one, or select the ${withoutSource === 1 ? 'region' : 'regions'} still missing ${S.lens === 'improve' ? 'selectable text' : 'source text'}.`,
+          text: `No region selected. Click one, or select the ${withoutSource === 1 ? 'region' : 'regions'} still missing ${contentIsImprove() ? 'selectable text' : 'source text'}.`,
           btn: [`${c.selectMissing} (Shift+A)`, () => selectTextRegionsWithoutContent()],
         });
       } else {
@@ -1714,15 +2046,15 @@ function nextActionItems() {
     }
   } else {
     // 2 — the selection's next editorial move, per workflow
-    if (S.lens === 'translate') {
+    if (contentIsTranslate()) {
       const withText = sel.filter(r => (r.content?.items || []).some(it => it.type === 'text')).length;
       const inSource = activeVariantIsSource();
-      const target = els.fTargetLang?.value || settings.targetLang || 'de';
+      const target = activeTargetLanguage();
       if (inSource && withText) {
         // The source variant is on screen: the next move is a translation into the target
         // variant, never "review" (the source text is exactly what is supposed to be here).
         steps.push({
-          text: `This is the ${languageName(S.pdfLanguage || S.project?.content?.language)} source variant — translate the selection into ${languageName(target)}.`,
+          text: `This is the ${languageName(appState.pdfLanguage || langLabel(appState.content))} source variant — translate the selection into ${languageName(target)}.`,
           btn: ['Translate from page text (Shift+T)', () => translateFromPageText()],
         });
       } else if (!withText) {
@@ -1750,7 +2082,7 @@ function nextActionItems() {
 
   // 3 — page-level follow-ups, whatever the selection
   const flagged = regions.reduce((n, r) => n + (r.content?.items || []).filter(it => it.type === 'text' && it.needsReview).length, 0);
-  if (flagged) steps.push({ text: `${flagged} ${flagged === 1 ? 'item is' : 'items are'} flagged ${S.lens === 'improve' ? 'extract' : 'machine-translated'} text — read and confirm them in the list below.` });
+  if (flagged) steps.push({ text: `${flagged} ${flagged === 1 ? 'item is' : 'items are'} flagged ${contentIsImprove() ? 'extract' : 'machine-translated'} text — read and confirm them in the list below.` });
   const overflowing = regions.reduce((n, r) => n + (r.content?.items || []).filter(it => it.type === 'text' && overflowsBox(it)).length, 0);
   if (overflowing) {
     steps.push({
@@ -1758,13 +2090,13 @@ function nextActionItems() {
       btn: ['Fit page text (R)', () => resizeAllTextInPage()],
     });
   }
-  if (S.mode !== 'view') steps.push({ text: 'Check the result in Preview mode (Tab), then export from the File menu.', btn: ['Preview', () => setMode('view')] });
+  if (appState.mode !== 'view') steps.push({ text: 'Check the result in Preview mode (Tab), then export from the File menu.', btn: ['Preview', () => setMode('view')] });
 
   // 4 — unsaved changes, always last (a project rows two files: map + content variant)
-  if (S.dirtySides?.map || S.dirtySides?.content) {
+  if (appState.dirtySides?.map || appState.dirtySides?.content) {
     steps.push({
-      text: `Unsaved ${S.dirtySides.map && S.dirtySides.content ? 'map + content' : S.dirtySides.map ? 'map' : 'content'} — the project is two files.`,
-      btn: ['Save project (Ctrl/Cmd+S)', () => saveProjectPart('both')],
+      text: `Unsaved ${appState.dirtySides.map && appState.dirtySides.content ? 'map + content' : appState.dirtySides.map ? 'map' : 'content'} — the project is two files.`,
+      btn: ['Export project (Ctrl/Cmd+S)', () => exportProjectPart('both')],
     });
   }
   return steps.slice(0, 5);
@@ -1802,16 +2134,16 @@ function refreshNextAction() {
 // focuses that flagged text item.
 function renderReviewList() {
   if (!els.reviewList || !els.reviewHeading) return;
-  const c = lensCopy();
-  if (els.reviewSection) els.reviewSection.hidden = !S.pmap || !S.project;
+  const c = workflowCopy();
+  if (els.reviewSection) els.reviewSection.hidden = !appState.pmap || !appState.content;
   els.reviewHeading.textContent = c.reviewHeading;
   els.reviewList.innerHTML = '';
-  if (!S.pmap || !S.project) return;
+  if (!appState.pmap || !appState.content) return;
   // The queue follows the lens's own variant. Translate confirms target text, Improve
   // confirms source text; showing the other variant's flags under this heading would
   // mislabel exactly the state the lens exists to avoid.
   const activeIsSource = activeVariantIsSource();
-  if ((S.lens === 'translate' && activeIsSource) || (S.lens === 'improve' && !activeIsSource)) {
+  if ((contentIsTranslate() && activeIsSource) || (contentIsImprove() && !activeIsSource)) {
     const p = document.createElement('p');
     p.className = 'hint';
     p.textContent = c.reviewEmpty;
@@ -1851,11 +2183,11 @@ function renderReviewList() {
     b.onclick = () => {
       const items = row.r.content?.items || [];
       const idx = items.findIndex(it => it.type === 'text' && it.needsReview);
-      S.selected = new Set([row.r.id]);
-      S.selectedVertex = null;
-      S.itemIndex = Math.max(0, idx);
-      S.itemSelected = true;
-      if (S.mode !== 'content') setMode('content');
+      appState.selected = new Set([row.r.id]);
+      appState.selectedVertex = null;
+      appState.itemIndex = Math.max(0, idx);
+      appState.itemSelected = true;
+      if (appState.mode !== 'content') setMode('content');
       // Select the referenced content only — do not open the edit dialog here.
       // Review-flagged items in the Content items panel open the dialog instead.
       rerender();
@@ -1870,49 +2202,61 @@ function renderReviewList() {
 function refreshCoverage() {
   const el = els.statusCoverage;
   if (!el) return;
-  if (!S.pmap || !viewer.doc) { el.textContent = ''; return; }
+  if (!appState.pmap || !viewer.doc) { el.textContent = ''; return; }
   const regions = currentRegions();
   const source = digitalSourceState();
   const textRegions = regions.filter(r => !isDetectedImage(r));
   const sourceCount = textRegions.filter(r => hasDigitalContent(r, source)).length;
   const missing = textRegions.length - sourceCount;
   const figures = regions.length - textRegions.length;
-  const c = lensCopy();
-  if (S.lens === 'improve') {
-    el.textContent = `Page ${S.page}: ${sourceCount} ${sourceCount === 1 ? 'region' : 'regions'} selectable · ${missing} not yet selectable${figures ? ` · ${figures} figure${figures === 1 ? '' : 's'}` : ''}.`;
+  const c = workflowCopy();
+  if (contentIsImprove()) {
+    el.textContent = `Page ${appState.page}: ${sourceCount} ${sourceCount === 1 ? 'region' : 'regions'} selectable · ${missing} not yet selectable${figures ? ` · ${figures} figure${figures === 1 ? '' : 's'}` : ''}.`;
     return;
   }
-  const activeLang = String(S.project?.content?.language || '').toLowerCase();
-  const activeIsSource = !!S.pdfLanguage && activeLang === String(S.pdfLanguage).toLowerCase();
+  const activeLang = String(appState.content?.sourceLanguage || '').toLowerCase();
+  const activeIsSource = !!appState.pdfLanguage && activeLang === String(appState.pdfLanguage).toLowerCase();
   const translated = activeIsSource ? 0 : textRegions.filter(r => (r.content?.items || []).some(it => it.type === 'text')).length;
   const pending = activeIsSource ? 0 : textRegions.filter(r => (r.content?.items || []).some(it => it.type === 'text' && it.needsReview)).length;
-  el.textContent = `Page ${S.page}: ${sourceCount} source read · ${translated} regions translated · ${pending} pending review.`;
+  el.textContent = `Page ${appState.page}: ${sourceCount} source read · ${translated} regions translated · ${pending} pending review.`;
 }
 
 function refreshModeIndicator() {
-  for (const b of document.querySelectorAll('#mode-group button')) b.classList.toggle('active', b.dataset.mode === S.mode);
+  for (const b of document.querySelectorAll('#mode-group button')) b.classList.toggle('active', b.dataset.mode === appState.mode);
   // The body carries the mode too, so CSS can describe the mode's vocabulary (e.g. in
   // Content mode a polygon is a read-only outline, not a draggable shape).
-  for (const m of MODE_ORDER) document.body.classList.toggle(`mode-${m}`, S.mode === m);
+  for (const m of MODE_ORDER) document.body.classList.toggle(`mode-${m}`, appState.mode === m);
 }
 
 function refreshMapInfo() {
-  if (!S.pmap) { els.mapInfo.textContent = 'No PDF loaded.'; return; }
-  const n = S.pmap.pages.reduce((a, p) => a + (p.regions?.length || 0), 0);
-  // The page count comes from the map's declared source (falling back to the pages it
-  // actually holds), so the panel says how big the document is as well as how mapped it is.
-  const pc = Number(S.pmap.source?.page_count) || S.pmap.pages.length || 0;
-  // Which map and which content variant are active, and which half has unsaved changes
-  // (spec §3: the two files are separate on disk, so saving them can differ).
-  const p = S.project;
-  const d = S.dirtySides || {};
-  const dirty = [d.map ? 'map' : '', d.content ? 'content' : ''].filter(Boolean);
-  const state = p ? (dirty.length ? `unsaved (${dirty.join(' + ')})` : 'saved') : '';
-  const variant = p && p.content.label ? ` “${p.content.label}”` : '';
-  const role = p ? (activeVariantIsSource() ? lensCopy().sourceVariant : 'translation') : '';
-  els.mapInfo.textContent = p
-    ? `${p.map.name} + ${p.content.name}${variant} — ${role} · ${state} · ${n} regions · ${pc} page${pc === 1 ? '' : 's'} · src ${S.pmap.source.filename} · sha ${String(S.pmap.source.sha256).slice(0, 10)}…`
-    : `${S.pmap.meta.name} · ${n} regions · ${pc} page${pc === 1 ? '' : 's'} · src ${S.pmap.source.filename} · sha ${String(S.pmap.source.sha256).slice(0, 10)}…`;
+  if (!appState.pmap) { els.mapInfo.textContent = 'No Region Map loaded.'; return; }
+
+  // Saves are now immediate (no debounce). IndexedDB is always in sync with the
+  // current model. The "unsaved" indicator here now reflects export-dirty state
+  // (dirtySides) — changes that haven't been exported to the file system yet.
+  const indexDbDirty = appState.dirtySides?.map || appState.dirtySides?.content;
+
+  // ---- PDF ----
+  const pc = Number(appState.pmap.source?.page_count) || appState.pmap.pages.length || 0;
+  const pdfSize = appState.pdfBytes ? fileSizeLabel(appState.pdfBytes.length) : '—';
+  const pdfLine = `<div class="file-row"><div class="file-kind source">PDF</div><div class="file-name">${escapeHtml(appState.pdfName)}</div><div class="file-detail">${pc} page${pc === 1 ? '' : 's'} · ${pdfSize}</div></div>`;
+
+  // ---- Region map ----
+  const n = appState.pmap.pages.reduce((a, p) => a + (p.regions?.length || 0), 0);
+  const mapStatus = indexDbDirty ? 'unsaved' : 'saved';
+  const mapLine = `<div class="file-row"><div class="file-kind ${mapStatus}">Region map</div><div class="file-name">${escapeHtml(appState.pmap.meta?.name || '—')}</div><div class="file-detail">${n} region${n === 1 ? '' : 's'} · ${pc} page${pc === 1 ? '' : 's'}</div></div>`;
+
+  // ---- Content variant ----
+  let contentLine = '';
+  if (appState.content) {
+    const c = appState.content;
+    const contentStatus = indexDbDirty ? 'unsaved' : 'saved';
+    const variantLabel = c.label ? ` (“${escapeHtml(c.label)}”)` : '';
+    const role = activeVariantIsSource() ? workflowCopy().sourceVariant : 'translation';
+    contentLine = `<div class="file-row"><div class="file-kind ${contentStatus}">Content variant</div><div class="file-name">${escapeHtml(c.name)}${variantLabel}</div><div class="file-detail">${escapeHtml(c.sourceLanguage)} → ${escapeHtml(c.destinationLanguage)} · ${role}</div></div>`;
+  }
+
+  els.mapInfo.innerHTML = `<div class="file-list">${pdfLine}${mapLine}${contentLine}</div>`;
 }
 
 function applyMode() {
@@ -1921,9 +2265,11 @@ function applyMode() {
   // survives a mode change in every mode (a region is selectable in Region and Content and
   // stays highlighted in the read-only ones); the *item* selection is an editorial state, so
   // it is dropped as soon as the mode is no longer Content (spec §9a).
-  S.draft = []; S.splitPts = []; S.cursor = null; S.marquee = null; S.marqueeBase = null; S.marqueeItems = false;
-  if (!inRegion()) { S.tool = 'select'; S.selectedVertex = null; }
-  if (!inContent()) { S.itemSelected = false; clearItemSelection(); }
+  appState.draft = []; appState.splitPts = []; appState.cursor = null; appState.marquee = null; appState.marqueeBase = null; appState.marqueeItems = false;
+  if (!inRegion()) { appState.tool = 'select'; appState.selectedVertex = null; }
+  // Coloring mode (eyedropper) is Region-only; switching out of it turns it off.
+  if (!inRegion() && appState.coloringMode) { appState.coloringMode = false; cancelEyedropper(); document.body.classList.remove('coloring-mode'); }
+  if (!inContent()) { appState.itemSelected = false; clearItemSelection(); }
   applyTextLayerInteractivity();
   rerender();
 }
@@ -1932,48 +2278,49 @@ function applyMode() {
 // Tab steps forward through the modes, Shift+Tab steps back (spec §9a).
 function cycleMode(back = false) {
   const n = MODE_ORDER.length;
-  const i = MODE_ORDER.indexOf(S.mode);
+  const i = MODE_ORDER.indexOf(appState.mode);
   setMode(MODE_ORDER[((i + (back ? -1 : 1)) % n + n) % n]);
 }
 function setTool(t) {
-  S.tool = t;
-  S.draft = []; S.splitPts = []; S.cursor = null;
+  appState.tool = t;
+  appState.draft = []; appState.splitPts = []; appState.cursor = null;
   applyTextLayerInteractivity();
   rerender();
 }
 // Arm/disarm the polygon drawing tool (Tools ▸ Add polygon, or the P shortcut). Drawing is
 // geometry, so the tool lives in Region mode only (spec §9a/§11.1).
-function armPolygon() {
+async function armPolygon() {
   if (!inRegion()) { setStatus('Switch to Region mode to draw regions.'); return; }
-  if (S.tool === 'polygon') { setTool('select'); setStatus('Add polygon: off.'); return; }
+  if (!appState.pmap && !(await ensureRegionFile())) return;
+  if (appState.tool === 'polygon') { setTool('select'); setStatus('Add polygon: off.'); return; }
   setTool('polygon');
   setStatus('Add polygon: click to add points · Enter/double-click to close · Esc cancels.');
 }
 function setMode(m) {
-  if (S.mode === m) return;
-  S.mode = m;
+  if (appState.mode === m) return;
+  appState.mode = m;
   applyMode();
   refreshModeIndicator();
 }
 function toggleOverlay() {
-  S.overlayVisible = !S.overlayVisible;
-  overlay.visible = S.overlayVisible;
+  appState.overlayVisible = !appState.overlayVisible;
+  overlay.visible = appState.overlayVisible;
   rerender();
 }
 // The source/selectability on-page tags. They are an editing aid, not a content layer:
 // turning them off leaves the polygons and ids exactly as they were.
 function toggleDigitalVersion() {
-  S.showDigital = !S.showDigital;
+  appState.showDigital = !appState.showDigital;
   rerender();
   const where = isEditMode() ? '.' : ' — visible in Region and Content mode.';
-  const label = S.lens === 'improve' ? 'Selectability status tags' : 'Source-text status tags';
-  setStatus(`${label} ${S.showDigital ? 'shown' : 'hidden'}${where}`);
+  const label = contentIsImprove() ? 'Selectability status tags' : 'Source-text status tags';
+  setStatus(`${label} ${appState.showDigital ? 'shown' : 'hidden'}${where}`);
 }
 async function gotoPagePrompt() {
   const answer = await promptValue({
     title: 'Go to page',
     text: `Page number (1–${viewer.pageCount}):`,
-    value: String(S.page),
+    value: String(appState.page),
     okLabel: 'Go',
     validate: (v) => {
       const n = parseInt(v, 10);
@@ -2057,7 +2404,7 @@ function detectionSummary(stats, scope) {
   // not: detection alone now probes text proposals, so the badge is useful before the
   // user decides whether to run the harvest. Both counters appear only when non-zero.
   if (stats.extractRan) parts.push(`${stats.extracted} extracted`);
-  if (stats.awaiting) parts.push(`${stats.awaiting} ${lensCopy().missing}`);
+  if (stats.awaiting) parts.push(`${stats.awaiting} ${workflowCopy().missing}`);
   if (stats.failed) parts.push(`${stats.failed} failed`);
   const nothing = !stats.added && !stats.replaced && !stats.skipped && !stats.removed && !stats.retyped
     && !stats.extracted && !stats.awaiting;
@@ -2089,12 +2436,12 @@ async function detectCommand(pages, { extract = false } = {}) {
   const stats = { added: 0, replaced: 0, skipped: 0, removed: 0, retyped: 0, unchanged: 0, extracted: 0, awaiting: 0, extractRan: extract, types: { text: 0, image: 0 }, typesUnchanged: { text: 0, image: 0 } };
   // Detect-with-extract is an extraction run, so it must land in the PDF-language/source-text
   // variant exactly like every other harvest. Do it before the plans are built: the guard can
-  // switch variants and rebuild S.pmap. Geometry proposals are variant-independent.
+  // switch variants and rebuild appState.pmap. Geometry proposals are variant-independent.
   if (extract && !(await ensureExtractionVariant('Detect and extract'))) return { cancelled: true, stats };
   const threshold = detectOverlap();
   const run = makeRunChoice();
   const plans = pages.map(({ page, res }) => {
-    const pg = getPage(S.pmap, page);
+    const pg = getPage(appState.pmap, page);
     const before = structuredClone(pg?.regions || []);
     const after = structuredClone(before);
     // Stale provenance (the user edited the geometry since detection) is cleared now; the
@@ -2188,7 +2535,7 @@ async function detectCommand(pages, { extract = false } = {}) {
   // figure, not a text candidate: it is never harvested and never earns the OCR badge.
   // Failures with no usable selectable text classify the region "awaiting OCR" instead of
   // being reported as errors.
-  const beforeAwaiting = new Set(S.awaitingOcr);
+  const beforeAwaiting = new Set(appState.awaitingOcr);
   const extractedIds = [];
   const awaitingIds = [];
   const notAwaitingIds = [];
@@ -2265,10 +2612,10 @@ async function detectCommand(pages, { extract = false } = {}) {
     if (!flagsChanged) return { cancelled: false, stats };
     // Detection-only classification changed, but not the map: keep the runtime badge out
     // of history and out of the dirty state, exactly like the manual extraction's badge.
-    S.awaitingOcr = new Set(beforeAwaiting);
-    for (const p of plans) for (const id of p.removedIds) S.awaitingOcr.delete(id);
-    for (const id of notAwaitingIds) S.awaitingOcr.delete(id);
-    for (const id of awaitingIds) S.awaitingOcr.add(id);
+    appState.awaitingOcr = new Set(beforeAwaiting);
+    for (const p of plans) for (const id of p.removedIds) appState.awaitingOcr.delete(id);
+    for (const id of notAwaitingIds) appState.awaitingOcr.delete(id);
+    for (const id of awaitingIds) appState.awaitingOcr.add(id);
     rerender();
     return { cancelled: false, stats };
   }
@@ -2277,27 +2624,27 @@ async function detectCommand(pages, { extract = false } = {}) {
     label: extract ? 'detect and extract' : 'detect regions',
     do() {
       for (const p of plans) {
-        const pg = ensurePage(S.pmap, p.page, p.width, p.height);
+        const pg = ensurePage(appState.pmap, p.page, p.width, p.height);
         pg.regions = structuredClone(p.after);
       }
-      S.awaitingOcr = new Set(beforeAwaiting);
-      for (const p of plans) for (const id of p.removedIds) S.awaitingOcr.delete(id);
-      for (const id of notAwaitingIds) S.awaitingOcr.delete(id);
-      for (const id of awaitingIds) S.awaitingOcr.add(id);
-      for (const id of extractedIds) S.awaitingOcr.delete(id);
+      appState.awaitingOcr = new Set(beforeAwaiting);
+      for (const p of plans) for (const id of p.removedIds) appState.awaitingOcr.delete(id);
+      for (const id of notAwaitingIds) appState.awaitingOcr.delete(id);
+      for (const id of awaitingIds) appState.awaitingOcr.add(id);
+      for (const id of extractedIds) appState.awaitingOcr.delete(id);
       const selected = plans.flatMap(p => [...p.addedIds, ...p.replacedIds, ...p.retypedIds]);
       // Select what the run produced (adds and replacements) so the canvas shows the result.
-      S.selected = new Set(selected);
-      S.itemSelected = false; clearItemSelection();
-      touch(S.pmap); rerender();
+      appState.selected = new Set(selected);
+      appState.itemSelected = false; clearItemSelection();
+      touch(appState.pmap); rerender();
     },
     undo() {
       for (const p of plans) {
-        if (p.existed) { const pg = getPage(S.pmap, p.page); if (pg) pg.regions = structuredClone(p.before); }
-        else S.pmap.pages = S.pmap.pages.filter(x => x.page !== p.page);
+        if (p.existed) { const pg = getPage(appState.pmap, p.page); if (pg) pg.regions = structuredClone(p.before); }
+        else appState.pmap.pages = appState.pmap.pages.filter(x => x.page !== p.page);
       }
-      S.awaitingOcr = new Set(beforeAwaiting);
-      S.selected.clear(); rerender();
+      appState.awaitingOcr = new Set(beforeAwaiting);
+      appState.selected.clear(); rerender();
     },
   });
   return { cancelled: false, stats };
@@ -2333,17 +2680,18 @@ function normalizeDetection(res) {
 
 async function detectRegionsOnPage() {
   if (!viewer.doc) { setStatus('Open a PDF first.'); return; }
+  if (!appState.pmap && !(await ensureRegionFile())) return;
   try {
     const engine = cvEngine();
     const guard = engine === 'opencv' ? 120000 : 60000;
     const res = normalizeDetection(await whileTicking(
-      `Detecting regions on page ${S.page}…`, () => viewer.detectRegions(S.page, { tier: detectTier(), engine, onProgress: detectionProgress }),
+      `Detecting regions on page ${appState.page}…`, () => viewer.detectRegions(appState.page, { tier: detectTier(), engine, onProgress: detectionProgress }),
       guard, `timed out after ${guard / 1000} s`).finally(() => clearProgress()));
-    setStatus(`Reviewing ${res.regions.length} proposal${res.regions.length === 1 ? '' : 's'} on page ${S.page}…`);
-    const out = await detectCommand([{ page: S.page, res }], { extract: detectExtract() });
-    if (out.cancelled) { setStatus(`Detection cancelled — nothing on page ${S.page} changed.`); return; }
+    setStatus(`Reviewing ${res.regions.length} proposal${res.regions.length === 1 ? '' : 's'} on page ${appState.page}…`);
+    const out = await detectCommand([{ page: appState.page, res }], { extract: detectExtract() });
+    if (out.cancelled) { setStatus(`Detection cancelled — nothing on page ${appState.page} changed.`); return; }
     const note = (res.notes && res.notes.length) ? ` — ${res.notes.join('; ')}` : '';
-    setStatus(detectionSummary(out.stats, ` on page ${S.page}${tierNote([res])}`) + note);
+    setStatus(detectionSummary(out.stats, ` on page ${appState.page}${tierNote([res])}`) + note);
   } catch (e) {
     setStatus('Detection failed: ' + ((e && e.message) || e));
   }
@@ -2351,6 +2699,7 @@ async function detectRegionsOnPage() {
 
 async function detectRegionsAllPages() {
   if (!viewer.doc) { setStatus('Open a PDF first.'); return; }
+  if (!appState.pmap && !(await ensureRegionFile())) return;
   try {
     const pages = [];
     for (let n = 1; n <= viewer.pageCount; n++) {
@@ -2377,21 +2726,21 @@ async function detectRegionsAllPages() {
 
 // ---- selection & props ----
 const itemKey = (id, index) => `${id}\u0000${index}`;
-function clearItemSelection() { S.itemSelection.clear(); }
+function clearItemSelection() { appState.itemSelection.clear(); }
 function isItemSelected(regionId, index) {
   // Preserve the pre-existing single-item behavior: the active item index is drawn as a box
   // handle even when the toolbar selection was handed back to the region (Alt press, mode
   // switch). The explicit page-wide set takes over only when Ctrl/Cmd+A filled it.
-  if (S.itemSelection.size) return S.itemSelection.has(itemKey(regionId, index));
-  return currentRegion()?.id === regionId && S.itemIndex === index;
+  if (appState.itemSelection.size) return appState.itemSelection.has(itemKey(regionId, index));
+  return currentRegion()?.id === regionId && appState.itemIndex === index;
 }
-function selectSingle(id) { S.selected.clear(); S.selected.add(id); S.selectedVertex = null; S.itemIndex = 0; S.itemSelected = false; clearItemSelection(); rerender(); }
-function toggleSelect(id) { S.selectedVertex = null; S.itemSelected = false; clearItemSelection(); S.selected.has(id) ? S.selected.delete(id) : S.selected.add(id); rerender(); }
+function selectSingle(id) { appState.selected.clear(); appState.selected.add(id); appState.selectedVertex = null; appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection(); rerender(); }
+function toggleSelect(id) { appState.selectedVertex = null; appState.itemSelected = false; clearItemSelection(); appState.selected.has(id) ? appState.selected.delete(id) : appState.selected.add(id); rerender(); }
 // Where the PDF-language ("digital") content lives right now. The active variant is the
 // source when its language is the PDF's; otherwise a variant switched away from is read from
 // the session cache. If that source was never loaded, no region has a digital version yet.
 function digitalSourceState() {
-  const pdfLang = String(S.pdfLanguage || '').toLowerCase();
+  const pdfLang = String(appState.pdfLanguage || '').toLowerCase();
   // No known PDF language means no identified source-text variant: the active variant is
   // some variant, not necessarily the source. Treating it as the source would make a target
   // translation wear a "has source text" badge.
@@ -2407,26 +2756,26 @@ function isTextConvertible(r, source = digitalSourceState()) {
   return !isDetectedImage(r) && !hasDigitalContent(r, source);
 }
 function selectTextRegionsWithoutContent() {
-  if (!S.pmap || !isEditMode()) return;
+  if (!appState.pmap || !isEditMode()) return;
   const source = digitalSourceState();
-  const c = lensCopy();
+  const c = workflowCopy();
   const regions = currentRegions().filter(r => isTextConvertible(r, source));
   if (!regions.length) { setStatus(c.noMissing); return; }
   clearItemSelection();
-  S.selected = new Set(regions.map(r => r.id));
-  S.selectedVertex = null; S.itemIndex = 0; S.itemSelected = false;
+  appState.selected = new Set(regions.map(r => r.id));
+  appState.selectedVertex = null; appState.itemIndex = 0; appState.itemSelected = false;
   setStatus(c.selectedMissing(regions.length));
   rerender();
 }
 // Ctrl/Cmd+A: geometry in Region mode, every text/image item on the page in Content mode.
 function selectAll() {
-  if (!S.pmap || !isEditMode()) return;
+  if (!appState.pmap || !isEditMode()) return;
   const regions = currentRegions();
   if (inRegion()) {
     if (!regions.length) { setStatus('No regions on this page.'); return; }
     clearItemSelection();
-    S.selected = new Set(regions.map(r => r.id));
-    S.selectedVertex = null; S.itemIndex = 0; S.itemSelected = false;
+    appState.selected = new Set(regions.map(r => r.id));
+    appState.selectedVertex = null; appState.itemIndex = 0; appState.itemSelected = false;
     setStatus(`${regions.length} region${regions.length === 1 ? '' : 's'} selected.`);
     rerender();
     return;
@@ -2435,16 +2784,16 @@ function selectAll() {
   const count = withItems.reduce((n, r) => n + r.content.items.length, 0);
   if (!count) { setStatus('No content items on this page.'); return; }
   clearItemSelection();
-  for (const r of withItems) r.content.items.forEach((_, i) => S.itemSelection.add(itemKey(r.id, i)));
-  S.selected = new Set(withItems.map(r => r.id));
-  S.selectedVertex = null; S.itemIndex = 0; S.itemSelected = true;
+  for (const r of withItems) r.content.items.forEach((_, i) => appState.itemSelection.add(itemKey(r.id, i)));
+  appState.selected = new Set(withItems.map(r => r.id));
+  appState.selectedVertex = null; appState.itemIndex = 0; appState.itemSelected = true;
   setStatus(`${count} content item${count === 1 ? '' : 's'} selected on this page.`);
   rerender();
 }
 // Do two axis-aligned [x0,y0,x1,y1] boxes overlap? (used by the selection marquee)
 function rectsIntersect(a, b) { return a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1]; }
-function currentRegions() { return S.pmap ? (getPage(S.pmap, S.page)?.regions || []) : []; }
-function selectedRegions() { return currentRegions().filter(r => S.selected.has(r.id)); }
+function currentRegions() { return appState.pmap ? (getPage(appState.pmap, appState.page)?.regions || []) : []; }
+function selectedRegions() { return currentRegions().filter(r => appState.selected.has(r.id)); }
 
 function currentRegion() { return selectedRegions()[0] || null; }
 function regionById(id) { return currentRegions().find(r => r.id === id) || null; }
@@ -2472,7 +2821,7 @@ function selectRegionBehind(id, point) {
   const target = (below.length ? below[below.length - 1] : stack[stack.length - 1])?.r;
   if (!target || target.id === id) {
     // Nothing behind: Alt behaves like a plain click so the pressed region still gets picked.
-    if (!S.selected.has(id)) selectSingle(id);
+    if (!appState.selected.has(id)) selectSingle(id);
     setStatus(`${id} is the only region under the pointer.`);
     return;
   }
@@ -2499,17 +2848,17 @@ function syncPropsForm() {
   // "Awaiting OCR" is an editing-mode aid (spec §20): shown in the region properties while
   // the region has no usable selectable text to extract from, hidden in the read-only modes.
   if (els.fOcr) {
-    els.fOcr.hidden = !(isEditMode() && S.awaitingOcr.has(r.id));
-    els.fOcr.textContent = lensCopy().missing;
-    els.fOcr.title = S.lens === 'improve'
+    els.fOcr.hidden = !(isEditMode() && appState.awaitingOcr.has(r.id));
+    els.fOcr.textContent = workflowCopy().missing;
+    els.fOcr.title = contentIsImprove()
       ? 'No usable selectable text under this region — the source is a scan, an image, or a broken text layer. Right-click the region and choose Read with OCR.'
       : 'No usable source text under this region — the source is a scan, an image, or a broken text layer. Right-click the region and choose Read with OCR.';
   }
   const items = r.content?.items || [];
-  if (S.itemIndex >= items.length) S.itemIndex = items.length - 1;
-  if (S.itemIndex < 0) S.itemIndex = 0;
+  if (appState.itemIndex >= items.length) appState.itemIndex = items.length - 1;
+  if (appState.itemIndex < 0) appState.itemIndex = 0;
   renderItemsPanel(items);
-  syncItemEditor(items[S.itemIndex] || null);
+  syncItemEditor(items[appState.itemIndex] || null);
 }
 
 // "The text does not fit its own box": the renderer's own measurement (the same call that
@@ -2551,7 +2900,7 @@ function renderItemsPanel(items) {
       b.append(badge);
     }
     b.onclick = () => {
-      S.itemIndex = idx; S.itemSelected = true; clearItemSelection(); syncPropsForm(); refreshContextTools();
+      appState.itemIndex = idx; appState.itemSelected = true; clearItemSelection(); syncPropsForm(); refreshContextTools();
       // A review-flagged text item under Content items opens the edit dialog so the
       // translation can be confirmed; other items are only selected.
       if (it.needsReview && it.type === 'text') {
@@ -2586,7 +2935,7 @@ function mutateContentFor(r, label, fn) {
   const provenance = detectionSnapshot(r);
   history.exec({
     label,
-    do() { fn(r.content); clearDetection(r); S.awaitingOcr.delete(r.id); touch(S.pmap); rerender(); },
+    do() { fn(r.content); clearDetection(r); appState.awaitingOcr.delete(r.id); touch(appState.pmap); rerender(); },
     undo() {
       r.content = structuredClone(before);
       restoreDetection(r, provenance);
@@ -2598,13 +2947,13 @@ function mutateContentFor(r, label, fn) {
 function editItem(fn, label) {
   const r = currentRegion();
   if (!r) return;
-  const idx = S.itemIndex;
+  const idx = appState.itemIndex;
   mutateContent(label, (c) => { const it = c.items[idx]; if (it) fn(it); });
 }
 
 // Absolute PDF boxes for the selected region's items, for overlay rendering.
 function buildItemBoxes(region) {
-  if (!region || !S.overlayVisible) return [];
+  if (!region || !appState.overlayVisible) return [];
   const items = region.content?.items || [];
   return items.map((it, index) => {
     const [x, y, w, h] = itemAbsBox(regionPoints(region.geometry), it);
@@ -2618,7 +2967,6 @@ function buildItemBoxes(region) {
 // regions orange (spec §9b) so the crop is never silent: the user enlarges the region or
 // shortens the text. The *box* is what the renderer clips, so the box is what is tested here;
 // the tolerance keeps a box fitted flush against a polygon edge from flickering orange.
-const CLIP_WARN_TOL = 0.6;
 function clippedRegions(regions) {
   const out = new Set();
   for (const r of regions) {
@@ -2741,14 +3089,14 @@ function placeTextItem(r, label, makeItem, opts = {}) {
   const beforeContent = structuredClone(r.content);
   history.exec({
     label,
-    do() { commitTextPlacement(r, item, fit); touch(S.pmap); rerender(); },
+    do() { commitTextPlacement(r, item, fit); touch(appState.pmap); rerender(); },
     undo() { r.content = structuredClone(beforeContent); rerender(); },
   });
 }
 function commitTextPlacement(r, item, fit) {
   r.content.items.push(item);
   clearDetection(r); // content add is user involvement (§21 rule 4)
-  S.awaitingOcr.delete(r.id); // a region with content is not awaiting OCR any more (§20)
+  appState.awaitingOcr.delete(r.id); // a region with content is not awaiting OCR any more (§20)
   autoLayout(r.content, item.box);
   // A text box is fitted to its text the moment it is added: the "Resize to text" the item
   // context menu offers, run automatically, in the same undo step as the add, so what the
@@ -2761,8 +3109,8 @@ function commitTextPlacement(r, item, fit) {
     if (info.spacingChanged) item.style = normalizeStyle({ ...item.style, lineHeight: info.spacing });
     setStatus(fitStatus(info, 'added'));
   }
-  S.itemIndex = r.content.items.indexOf(item);
-  S.itemSelected = true; clearItemSelection();
+  appState.itemIndex = r.content.items.indexOf(item);
+  appState.itemSelected = true; clearItemSelection();
 }
 function stackItems(items, [x, y, w, h]) {
   const n = items.length;
@@ -2779,25 +3127,31 @@ function autoLayout(content, rect) {
 function addItem(content, item, rect) {
   content.items.push(item);
   autoLayout(content, rect);
-  S.itemIndex = content.items.indexOf(item);
-  S.itemSelected = true; clearItemSelection();
+  appState.itemIndex = content.items.indexOf(item);
+  appState.itemSelected = true; clearItemSelection();
 }
 
 async function addTextItem() {
   let r = currentRegion();
   if (!r) { setStatus('Select a region first, then add text.'); return; }
+  const rid = r.id;
+  if (!appState.content && !(await ensureContentFile())) return;
+  // A newly created variant rebuilds the region objects and clears the selection.
+  r = regionById(rid);
+  if (!r) { setStatus('The selected region is no longer available.'); return; }
+  if (!appState.selected.size) appState.selected = new Set([rid]);
   // Improve edits source text. If the active variant is a translation (or its language is
   // still unknown), establish the PDF-language/Selectable-text variant before opening the
   // editor; otherwise the words typed here would land in the target variant. The guard is
   // the normal extraction-language flow, so it asks at most once and never silently changes
   // a variant the user is editing.
-  if (S.lens === 'improve' && !activeVariantIsSource()) {
+  if (contentIsImprove() && !activeVariantIsSource()) {
     const ids = selectedRegions().map(x => x.id);
     if (!(await ensureExtractionVariant('Add source text'))) return;
     const sel = ids.map(regionById).filter(Boolean);
     if (!sel.length) { setStatus('The selected region is no longer available.'); return; }
-    S.selected = new Set(sel.map(x => x.id));
-    S.selectedVertex = null;
+    appState.selected = new Set(sel.map(x => x.id));
+    appState.selectedVertex = null;
     r = sel[0];
   }
   // Placing an item is editorial work, so the region menu's Add text / Add image drop the
@@ -2807,8 +3161,12 @@ async function addTextItem() {
 }
 
 // Add image: file picker is the explicit path; Ctrl+V is handled globally.
-function addImageItem() {
-  if (!currentRegion()) { setStatus('Select a region first, then add an image.'); return; }
+async function addImageItem() {
+  const r = currentRegion();
+  if (!r) { setStatus('Select a region first, then add an image.'); return; }
+  const rid = r.id;
+  if (!appState.content && !(await ensureContentFile())) return;
+  if (!appState.selected.size) appState.selected = new Set([rid]);
   if (!inContent()) setMode('content');
   els.fileItemImage.click();
 }
@@ -2825,8 +3183,8 @@ function deleteItem() {
   const r = currentRegion();
   if (!r || !regionHasContent(r)) return;
   clearItemSelection();
-  const idx = S.itemIndex;
-  mutateContent('delete item', (c) => { c.items.splice(idx, 1); S.itemIndex = Math.max(0, Math.min(idx, c.items.length - 1)); S.itemSelected = c.items.length > 0; });
+  const idx = appState.itemIndex;
+  mutateContent('delete item', (c) => { c.items.splice(idx, 1); appState.itemIndex = Math.max(0, Math.min(idx, c.items.length - 1)); appState.itemSelected = c.items.length > 0; });
 }
 
 // Delete every item picked by Ctrl/Cmd+A in Content mode, across regions, as one undo step.
@@ -2836,7 +3194,7 @@ function selectedItemRefs() {
   const refs = [];
   for (const r of currentRegions()) {
     (r.content?.items || []).forEach((it, i) => {
-      if (S.itemSelection.has(itemKey(r.id, i))) refs.push({ r, i });
+      if (appState.itemSelection.has(itemKey(r.id, i))) refs.push({ r, i });
     });
   }
   return refs;
@@ -2860,11 +3218,11 @@ function deleteSelectedItems() {
         idxs.sort((a, b) => b - a);
         for (const i of idxs) r.content.items.splice(i, 1);
         clearDetection(r);
-        S.awaitingOcr.delete(r.id);
+        appState.awaitingOcr.delete(r.id);
       }
-      S.selected.clear(); S.selectedVertex = null; S.itemIndex = 0;
-      S.itemSelected = false; clearItemSelection();
-      touch(S.pmap);
+      appState.selected.clear(); appState.selectedVertex = null; appState.itemIndex = 0;
+      appState.itemSelected = false; clearItemSelection();
+      touch(appState.pmap);
       setStatus(`Deleted ${count} content item${count === 1 ? '' : 's'}.`);
       rerender();
     },
@@ -2884,13 +3242,13 @@ function moveItemTo(where) {
   const r = currentRegion();
   const items = r?.content?.items || [];
   clearItemSelection();
-  const idx = S.itemIndex;
+  const idx = appState.itemIndex;
   const j = where === 'front' ? items.length - 1 : 0;
   if (idx < 0 || idx >= items.length || idx === j) return;
   mutateContent(where === 'front' ? 'bring item to front' : 'send item to back', (c) => {
     const [it] = c.items.splice(idx, 1);
     c.items.splice(j, 0, it);
-    S.itemIndex = j;
+    appState.itemIndex = j;
   });
 }
 
@@ -2973,10 +3331,6 @@ function fitStatus(info, what) {
 // When even the floor cannot fit, it falls back to the automatic fit's behaviour —
 // keep the font, take the spacing the region allows, and grow the box past the polygon
 // so the text is never cropped by its own box; the orange warning carries the message.
-const FIT_MIN_SIZE = 6;      // pt — the font lever's floor
-const FIT_SIZE_STEP = 0.5;   // pt — the font search step
-const FIT_WIDTH_SAMPLES = 12; // width-shrink samples between the box's own width and its longest token
-
 function regionOrigin(r) {
   const bb = regionBBox(r.geometry);
   return [bb[0], bb[1]];
@@ -3102,8 +3456,8 @@ function resizeItemToText(id, idx) {
       : 'Text box already matches its text.');
     return;
   }
-  S.selected.clear(); S.selected.add(id);
-  S.itemIndex = idx; S.itemSelected = true; clearItemSelection();
+  appState.selected.clear(); appState.selected.add(id);
+  appState.itemIndex = idx; appState.itemSelected = true; clearItemSelection();
   mutateContentFor(r, 'resize text box to text', (c) => {
     const t = c.items[idx];
     if (!t) return;
@@ -3124,11 +3478,11 @@ function resizeItemToText(id, idx) {
 // rather than losing its text. A box is never moved and text is never silently cropped. A
 // locked region's content is still editable — that is what locking means here.
 function pageTextItemCount() {
-  const pg = getPage(S.pmap, S.page);
+  const pg = getPage(appState.pmap, appState.page);
   return (pg?.regions || []).reduce((n, r) => n + (r.content?.items || []).filter(it => it.type === 'text').length, 0);
 }
 function resizeAllTextInPage() {
-  const pg = getPage(S.pmap, S.page);
+  const pg = getPage(appState.pmap, appState.page);
   if (!pg) { setStatus('No page loaded.'); return; }
   const plans = [];
   let boxes = 0, clipped = 0, tightened = 0, shrunk = 0;
@@ -3157,11 +3511,11 @@ function resizeAllTextInPage() {
       plans.push({ regionId: r.id, i, before: snap(items[i]), after: snap(afterItem) });
     }
   }
-  if (!boxes) { setStatus(`No text boxes on page ${S.page}.`); return; }
+  if (!boxes) { setStatus(`No text boxes on page ${appState.page}.`); return; }
   if (!plans.length) {
     setStatus(clipped
-      ? `All ${boxes} text box(es) on page ${S.page} already match their text, but ${clipped} still need a bigger region (the polygon clips the overhang and is painted orange).`
-      : `All ${boxes} text box(es) on page ${S.page} already match their text.`);
+      ? `All ${boxes} text box(es) on page ${appState.page} already match their text, but ${clipped} still need a bigger region (the polygon clips the overhang and is painted orange).`
+      : `All ${boxes} text box(es) on page ${appState.page} already match their text.`);
     return;
   }
   const apply = (key) => {
@@ -3177,10 +3531,10 @@ function resizeAllTextInPage() {
   };
   history.exec({
     label: 'resize text boxes to text',
-    do() { apply('after'); touch(S.pmap); rerender(); },
+    do() { apply('after'); touch(appState.pmap); rerender(); },
     undo() { apply('before'); rerender(); },
   });
-  setStatus(`Resized ${plans.length} of ${boxes} text box(es) on page ${S.page}${tightened ? `, tightening the line spacing of ${tightened}` : ''}${shrunk ? `, reducing the font of ${shrunk}` : ''}${clipped ? ` — ${clipped} still need a bigger region (the polygon clips the overhang and is painted orange)` : ''}.`);
+  setStatus(`Resized ${plans.length} of ${boxes} text box(es) on page ${appState.page}${tightened ? `, tightening the line spacing of ${tightened}` : ''}${shrunk ? `, reducing the font of ${shrunk}` : ''}${clipped ? ` — ${clipped} still need a bigger region (the polygon clips the overhang and is painted orange)` : ''}.`);
 }
 
 // ---- inline on-page rich-text editing (double-click / Add text) ----
@@ -3207,11 +3561,18 @@ function captureEditorSel() {
 }
 
 // The live selection in the editor, falling back to the one captured on toolbar pointerdown.
+// Prefer a non-collapsed selection: clicking a toolbar button can collapse the live caret,
+// but the user's intended selection is still the one captured on pointerdown. Without this,
+// every format button would only set a pending style instead of formatting the selection.
 function liveRange() {
   const sel = window.getSelection();
-  if (sel && sel.rangeCount && els.inlineEdit.contains(sel.getRangeAt(0).commonAncestorContainer)) return sel.getRangeAt(0);
-  if (capturedSel && els.inlineEdit.contains(capturedSel.commonAncestorContainer)) return capturedSel;
-  return null;
+  const live = (sel && sel.rangeCount && els.inlineEdit.contains(sel.getRangeAt(0).commonAncestorContainer))
+    ? sel.getRangeAt(0) : null;
+  const captured = (capturedSel && els.inlineEdit.contains(capturedSel.commonAncestorContainer))
+    ? capturedSel : null;
+  if (live && !live.collapsed) return live;
+  if (captured && !captured.collapsed) return captured;
+  return live || captured;
 }
 
 // ---- block/flow helpers (a "flow" = paragraph / heading / list item / table cell) ----
@@ -3236,9 +3597,10 @@ function baseForFlow(block, flow) {
   if (block.type === 'list') return flowBase(s, 'paragraph', null, null, block.direction);
   return flowBase(s, 'paragraph', null, block.align, block.direction);
 }
-function renderEditor() { els.inlineEdit.innerHTML = blocksToHtml(inlineState.blocks, inlineState.style); }
+function renderEditor() { clearEditorDomCaches(); els.inlineEdit.innerHTML = blocksToHtml(inlineState.blocks, inlineState.style); }
 function readEditor() {
   if (!inlineState) return;
+  clearEditorDomCaches();
   inlineState.blocks = htmlToBlocks(els.inlineEdit, inlineState.style);
   ensureTrailingParagraph(inlineState.blocks, inlineState.style);
 }
@@ -3271,8 +3633,6 @@ function updateActiveFlow() {
   const parts = String(pathOf(el)).split('.').map(Number);
   inlineState.active = { path: pathOf(el), block: parts[0], row: parts[1] ?? null, col: parts[2] ?? null };
 }
-
-function offsetToDom(root, off) { return locateOffset(root, collectUnits(root), off); }
 function setCaretInFlow(path, off) {
   const el = els.inlineEdit.querySelector(`[data-flow="${path}"]`);
   if (!el) return;
@@ -3301,8 +3661,17 @@ function saveSelection() {
 }
 function restoreSelection(save) {
   if (!save) return;
-  const sEl = els.inlineEdit.querySelector(`[data-flow="${save.sPath}"]`);
-  const eEl = els.inlineEdit.querySelector(`[data-flow="${save.ePath}"]`) || sEl;
+  // Structural conversions change a flow's path (paragraph "3" ↔ list "3.0", or a table
+  // cell "3.0.1"), so fall back to the first flow of the same block instead of dropping
+  // the selection entirely (e.g. after pressing the bullet/numbering buttons).
+  const findFlow = (path) => {
+    const exact = els.inlineEdit.querySelector(`[data-flow="${path}"]`);
+    if (exact) return exact;
+    const bi = String(path).split('.')[0];
+    return flowsInEditor().find(f => String(pathOf(f)).split('.')[0] === bi) || null;
+  };
+  const sEl = findFlow(save.sPath);
+  const eEl = findFlow(save.ePath) || sEl;
   if (!sEl) return;
   const [sn, so] = offsetToDom(sEl, save.sOff);
   const [en, eo] = offsetToDom(eEl, save.eOff);
@@ -3359,11 +3728,158 @@ function textDialogDragEnd() {
   document.removeEventListener('pointerup', textDialogDragEnd);
 }
 
+// Resize the reference page-crop image inside the text editor dialog. Drag the small
+// handle at its bottom-right corner; the image keeps its aspect-free size (width and
+// height are set explicitly so it can grow past the default caps).
+let sourceResize = null;
+function sourceResizeStart(e, img) {
+  e.preventDefault();
+  if (sourceResize) return;
+  const rect = img.getBoundingClientRect();
+  // Drop the default caps so the image can be grown; then size explicitly.
+  img.style.maxWidth = 'none';
+  img.style.maxHeight = 'none';
+  img.style.width = Math.round(rect.width) + 'px';
+  img.style.height = Math.round(rect.height) + 'px';
+  sourceResize = { img, startX: e.clientX, startY: e.clientY, startW: rect.width, startH: rect.height };
+  img.style.cursor = 'se-resize';
+  document.addEventListener('pointermove', sourceResizeMove);
+  document.addEventListener('pointerup', sourceResizeEnd);
+}
+function sourceResizeMove(e) {
+  if (!sourceResize) return;
+  const w = Math.max(60, sourceResize.startW + (e.clientX - sourceResize.startX));
+  const h = Math.max(40, sourceResize.startH + (e.clientY - sourceResize.startY));
+  sourceResize.img.style.width = w + 'px';
+  sourceResize.img.style.height = h + 'px';
+}
+function sourceResizeEnd() {
+  if (!sourceResize) return;
+  sourceResize.img.style.cursor = '';
+  sourceResize = null;
+  document.removeEventListener('pointermove', sourceResizeMove);
+  document.removeEventListener('pointerup', sourceResizeEnd);
+}
+
+// Split pane resize handler (for source image / editor pane divider)
+let splitResize = null;
+function splitResizeStart(e) {
+  e.preventDefault();
+  if (splitResize) return;
+  const splitPane = e.target.closest('.tm-split-pane');
+  const sourcePane = splitPane?.querySelector('.tm-source-pane');
+  const editorPane = splitPane?.querySelector('.tm-editor-pane');
+  if (!sourcePane || !editorPane) return;
+  
+  const rect = splitPane.getBoundingClientRect();
+  const sourceRect = sourcePane.getBoundingClientRect();
+  
+  splitResize = { 
+    splitPane, sourcePane, editorPane,
+    startX: e.clientX, 
+    startSourceWidth: sourceRect.width,
+    splitWidth: rect.width
+  };
+  
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+  e.target.classList.add('dragging');
+  
+  document.addEventListener('pointermove', splitResizeMove);
+  document.addEventListener('pointerup', splitResizeEnd);
+}
+
+function splitResizeMove(e) {
+  if (!splitResize) return;
+  const { splitPane, sourcePane, editorPane, startX, startSourceWidth, splitWidth } = splitResize;
+  const dx = e.clientX - startX;
+  const newSourceWidth = startSourceWidth + dx;
+  const minSourceWidth = 150;
+  const maxSourceWidth = splitWidth - 200; // leave at least 200px for editor
+  
+  const clampedWidth = Math.max(minSourceWidth, Math.min(maxSourceWidth, newSourceWidth));
+  const sourcePercent = (clampedWidth / splitWidth) * 100;
+  
+  splitResize.sourcePane.style.flex = `0 0 ${sourcePercent}%`;
+  splitResize.editorPane.style.flex = `1 1 auto`;
+}
+
+function splitResizeEnd() {
+  if (!splitResize) return;
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  if (splitResize && splitResize.sourcePane) {
+    splitResize.sourcePane.style.cursor = '';
+    splitResize.sourcePane.classList.remove('dragging');
+  }
+  splitResize = null;
+  document.removeEventListener('pointermove', splitResizeMove);
+  document.removeEventListener('pointerup', splitResizeEnd);
+}
+
+// Fullscreen toggle for text editor dialog
+let textEditorFullscreen = false;
+let textEditorPrevSize = null; // { width, height, left, top }
+
+function toggleTextEditorFullscreen() {
+  const modal = els.textModal?.querySelector('.text-box-modal');
+  if (!modal) return;
+  
+  textEditorFullscreen = !textEditorFullscreen;
+  els.tmFullscreen?.classList.toggle('active', textEditorFullscreen);
+  
+  if (textEditorFullscreen) {
+    // Save current size and position
+    textEditorPrevSize = {
+      width: modal.style.width || '',
+      height: modal.style.height || '',
+      left: modal.style.left || '',
+      top: modal.style.top || ''
+    };
+    // Set to full viewport
+    modal.style.width = '100vw';
+    modal.style.height = '100vh';
+    modal.style.left = '0';
+    modal.style.top = '0';
+    modal.style.maxWidth = 'none';
+    modal.style.maxHeight = 'none';
+    modal.style.borderRadius = '0';
+    document.body.style.overflow = 'hidden'; // Prevent background scrolling
+  } else {
+    // Restore previous size and position
+    if (textEditorPrevSize) {
+      modal.style.width = textEditorPrevSize.width;
+      modal.style.height = textEditorPrevSize.height;
+      modal.style.left = textEditorPrevSize.left;
+      modal.style.top = textEditorPrevSize.top;
+      modal.style.maxWidth = '';
+      modal.style.maxHeight = '';
+      modal.style.borderRadius = '';
+    }
+    document.body.style.overflow = '';
+  }
+  
+  // Re-render to adjust editor layout
+  if (inlineState) {
+    renderEditor();
+    styleInlineEditor();
+  }
+}
+
 function openInlineEditor(region, index, { box, style, blocks } = {}) {
-  S.selected.clear(); S.selected.add(region.id);
-  S.itemSelected = true; clearItemSelection();
-  if (index != null) S.itemIndex = index;
+  appState.selected.clear(); appState.selected.add(region.id);
+  appState.itemSelected = true; clearItemSelection();
+  if (index != null) appState.itemIndex = index;
   const st = normalizeStyle(style);
+  // Preference defaults fill in anything the item did not set explicitly, so new
+  // items and new typing start from the user's chosen defaults rather than the
+  // built-in ones.
+  if (!style || style.font === undefined) st.font = defaultFont();
+  if (!style || style.size === undefined) st.size = defaultSize();
+  if (!style || style.lineHeight === undefined) st.lineHeight = defaultLineHeight();
+  // Default state is always regular: new typing never inherits bold/italic/underline
+  // from the item's stored style or from a previously edited item.
+  st.bold = false; st.italic = false; st.underline = false;
   inlineState = {
     regionId: region.id, index: index ?? null, box: box || textRect(region),
     style: st, blocks: ensureTrailingParagraph(normalizeBlocks(blocks), st), active: null, pending: null,
@@ -3399,6 +3915,14 @@ function openInlineEditor(region, index, { box, style, blocks } = {}) {
   renderEditor();
   styleInlineEditor();
   loadEditorSourceImage(region);
+  // Wire the split pane resize handle.
+  if (els.textModal) {
+    const splitHandle = els.textModal.querySelector('#tm-split-handle');
+    if (splitHandle && !splitHandle.dataset.splitResize) {
+      splitHandle.dataset.splitResize = '1';
+      splitHandle.addEventListener('pointerdown', splitResizeStart);
+    }
+  }
   rerender();
   els.inlineEdit.focus();
   caretToEnd();
@@ -3413,7 +3937,7 @@ function ensureEditorOpen() {
   const item = currentTextItem();
   const r = currentRegion();
   if (!item || !r) return false;
-  openInlineEditor(r, S.itemIndex, { box: item.box, style: item.style, blocks: itemBlocks(item) });
+  openInlineEditor(r, appState.itemIndex, { box: item.box, style: item.style, blocks: itemBlocks(item) });
   return true;
 }
 
@@ -3424,7 +3948,7 @@ function ensureEditorOpen() {
 // still reports the box's real size so it is never a mystery.
 function styleInlineEditor() {
   if (!inlineState || els.inlineEdit.hidden) return;
-  const r = getPage(S.pmap, S.page)?.regions.find(x => x.id === inlineState.regionId);
+  const r = getPage(appState.pmap, appState.page)?.regions.find(x => x.id === inlineState.regionId);
   if (!r) { closeInlineEditor(); return; }
   const st = inlineState.style;
   const ta = els.inlineEdit;
@@ -3448,31 +3972,29 @@ function subtreeUnits(n) {
   return 0;
 }
 function domPointToOffset(root, node, offset) {
-  // The boundary can be the flow element itself (e.g. selectNodeContents):
-  // count whole children up to the child index.
+  // Fast path: use TreeWalker for efficient tree traversal
   if (node === root && node.nodeType === 1) {
     let count = 0;
     for (let m = 0; m < offset && m < node.childNodes.length; m++) count += subtreeUnits(node.childNodes[m]);
     return count;
   }
-  let count = 0, done = false;
-  const visit = (n) => {
-    for (let k = 0; k < n.childNodes.length && !done; k++) {
-      const c = n.childNodes[k];
-      if (c === node) {
-        if (c.nodeType === 3) count += countChars(c.nodeValue.slice(0, offset));
-        else for (let m = 0; m < offset && m < c.childNodes.length; m++) count += subtreeUnits(c.childNodes[m]);
-        done = true; return;
-      }
-      if (c.nodeType === 3) count += countChars(c.nodeValue);
-      else if (c.nodeType === 1) { if (c.tagName === 'BR') count += 1; else visit(c); }
-    }
-  };
-  visit(root);
+  // Create a range from root start to the target point
+  const range = document.createRange();
+  range.setStart(root, 0);
+  range.setEnd(node, offset);
+  // Get text content, excluding zero-width spaces
+  const text = range.toString();
+  let count = 0;
+  for (const ch of text) if (ch !== '\u200b') count++;
   return count;
 }
 
-function collectUnits(root) {
+// Cache for collectUnits results per flow element (invalidated on readEditor/renderEditor)
+const unitsCacheRef = { current: new WeakMap() };
+function getUnits(root) {
+  const unitsCache = unitsCacheRef.current;
+  let cached = unitsCache.get(root);
+  if (cached) return cached;
   const units = [];
   const walk = (n) => {
     for (const c of n.childNodes) {
@@ -3481,8 +4003,11 @@ function collectUnits(root) {
     }
   };
   walk(root);
+  unitsCache.set(root, units);
   return units;
 }
+
+function collectUnits(root) { return getUnits(root); }
 function indexInParent(node) { return Array.prototype.indexOf.call(node.parentNode.childNodes, node); }
 function locateOffset(root, units, off) {
   if (!units.length) return [root, 0];
@@ -3491,6 +4016,12 @@ function locateOffset(root, units, off) {
   const u = units[off];
   return u.br ? [u.node.parentNode, indexInParent(u.node) + 1] : [u.node, u.i];
 }
+function offsetToDom(root, off) { return locateOffset(root, getUnits(root), off); }
+
+function clearEditorDomCaches() {
+  unitsCacheRef.current = new WeakMap();
+}
+
 
 // ---- formatting: always scoped to the selection (or pending for next keystrokes) ----
 function baseOfBlocks() {
@@ -3504,29 +4035,36 @@ function baseOfBlocks() {
 // Effective character style at the caret / selection start (drives toolbar state).
 function editorCurrentStyle() {
   if (!inlineState) return {};
-  if (inlineState.pending) return normalizeStyle(inlineState.pending);
   const range = liveRange();
+  // A pending style describes what the caret will type next. It must not mask the real
+  // style of an actual selection, or a leftover pending style would keep Bold (or any
+  // other toggle) shown as active while the user selects ordinary text.
+  const hasSelection = !!(range && !range.collapsed);
+  if (inlineState.pending && !hasSelection) return normalizeStyle(inlineState.pending);
   const el = range ? closestFlow(range.startContainer) : null;
   const hit = el ? flowAt(inlineState.blocks, pathOf(el)) : null;
   if (!hit) return baseOfBlocks();
   const base = baseForFlow(hit.block, hit.flow);
   const value = String(hit.flow.value || '');
   if (!value.length) return normalizeStyle(base);
-  const cs = charStyles({ value, style: base, runs: hit.flow.runs });
+  const cs = charStyles(hit.flow, base);
   const off = range ? domPointToOffset(el, range.startContainer, range.startOffset) : 0;
   return cs[Math.max(0, Math.min(value.length - 1, off))] || normalizeStyle(base);
 }
 
 function applyTextFormat(kind, value) {
   if (!ensureEditorOpen()) return;
+  // The pending style (if the caret is mid-formatting) is the base for the collapsed-caret
+  // path: starting from it keeps other attributes when toggling one (bold then italic).
+  const previousPending = inlineState.pending;
   inlineState.pending = null;
   readEditor();
   const range = liveRange();
   const sFlow = range ? closestFlow(range.startContainer) : null;
   const eFlow = range ? closestFlow(range.endContainer) : null;
-  if (!range || !sFlow || !eFlow) { caretToEnd(); const r2 = liveRange(); if (r2) insertPending(kind, value); refreshContextTools(); return; }
+  if (!range || !sFlow || !eFlow) { caretToEnd(); const r2 = liveRange(); if (r2) insertPending(kind, value, previousPending); refreshContextTools(); return; }
 
-  if (range.collapsed && sFlow === eFlow) { insertPending(kind, value); refreshContextTools(); return; }
+  if (range.collapsed && sFlow === eFlow) { insertPending(kind, value, previousPending); refreshContextTools(); return; }
 
   const flows = flowsInEditor();
   let si = flows.indexOf(sFlow), ei = flows.indexOf(eFlow);
@@ -3557,7 +4095,7 @@ function applyTextFormat(kind, value) {
 }
 
 // Collapsed caret: carry the format into the next typed characters only.
-function insertPending(kind, value) {
+function insertPending(kind, value, previousPending) {
   const range = liveRange();
   const el = range ? closestFlow(range.startContainer) : null;
   const hit = el ? flowAt(inlineState.blocks, pathOf(el)) : null;
@@ -3566,18 +4104,38 @@ function insertPending(kind, value) {
   const base = baseForFlow(block, flow);
   const n = String(flow.value || '').length;
   const off = range ? domPointToOffset(el, range.startContainer, range.startOffset) : n;
-  const cs = n ? charStyles({ value: flow.value, style: base, runs: flow.runs }) : null;
-  const at = n ? (cs[Math.max(0, Math.min(n - 1, off))] || normalizeStyle(base)) : normalizeStyle(base);
-  const pend = { ...normalizeStyle(base) };
-  if (kind === 'bold') pend.bold = !at.bold;
-  else if (kind === 'italic') pend.italic = !at.italic;
-  else if (kind === 'underline') pend.underline = !at.underline;
+  const cs = n ? charStyles(flow, base) : null;
+  // If the caret already sits in a pending marker (the user pressed another format
+  // control before typing), that marker is the style base and is restyled in place —
+  // markers would otherwise accumulate and the other attributes would be lost.
+  const pendingEl = (() => {
+    const node = range ? range.startContainer : null;
+    const nodeEl = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
+    return nodeEl && nodeEl.closest ? nodeEl.closest('[data-pending]') : null;
+  })();
+  const at = (pendingEl && previousPending)
+    ? normalizeStyle(previousPending)
+    : (n ? (cs[Math.max(0, Math.min(n - 1, off))] || normalizeStyle(base)) : normalizeStyle(base));
+  // Start from the effective style at the caret (not the bare block base): toggling one
+  // attribute (e.g. italic) must keep the others (e.g. bold) that the caret already has.
+  const pend = { ...normalizeStyle(at) };
+  if (kind === 'bold') pend.bold = value === undefined ? !at.bold : !!value;
+  else if (kind === 'italic') pend.italic = value === undefined ? !at.italic : !!value;
+  else if (kind === 'underline') pend.underline = value === undefined ? !at.underline : !!value;
   else if (kind === 'color') pend.color = value;
   else if (kind === 'font') pend.font = value;
   else if (kind === 'size') pend.size = Math.max(4, Math.min(200, Number(value) || 12));
   else if (kind === 'dir') pend.direction = value === 'rtl' ? 'rtl' : 'ltr';
+  else if (kind === 'fontWeight') pend.bold = value === 'bold';
+  else if (kind === 'background') {
+    // background color is applied to the whole block/item, not as a run
+    // we'll handle this differently - for now just set pending
+    pend.background = value;
+  }
   inlineState.pending = pend;
   if (range && !range.collapsed) return;
+  if (!range) return;
+  if (pendingEl) { pendingEl.setAttribute('style', spanCss(pend)); return; }
   const span = document.createElement('span');
   span.setAttribute('data-pending', '1');
   span.setAttribute('style', spanCss(pend));
@@ -3649,16 +4207,26 @@ function blockOp(kind) {
   const bi = parts[0];
   const b = inlineState.blocks[bi];
   const save = saveSelection();
+  // A non-collapsed selection is the user's working range: keep it across the structural
+  // change instead of replacing it with a caret inside a newly inserted table.
+  const hadSelection = !!(save && (save.sPath !== save.ePath || save.sOff !== save.eOff));
   if (kind === 'table') {
     inlineState.blocks.splice(bi + 1, 0, newTableBlock(2, 2));
     ensureTrailingParagraph(inlineState.blocks, inlineState.style);
   } else if (kind === 'ul' || kind === 'ol') {
-    if (b && b.type === 'list') b.ordered = kind === 'ol';
-    else if (b) {
+    const ordered = kind === 'ol';
+    // Toggle: if current block is already a list with same ordered state, convert to paragraph
+    if (b && b.type === 'list' && b.ordered === ordered) {
+      const items = b.items.map(it => ({ value: it.value, runs: it.runs || [], level: it.level || 0 }));
+      inlineState.blocks[bi] = { type: 'paragraph', value: (items[0]?.value || '').replace(/\n+$/, ''), runs: items[0]?.runs || [], align: b.align, direction: b.direction };
+    } else if (b && b.type === 'list') {
+      // Switch list type
+      b.ordered = ordered;
+    } else if (b) {
       const items = b.type === 'paragraph' || b.type === 'heading'
-        ? [{ value: b.value || '', runs: b.runs || [], level: 0 }]
+        ? [{ value: (b.value || '').replace(/\n+$/, ''), runs: b.runs || [], level: 0 }]
         : [{ value: '', runs: [], level: 0 }];
-      inlineState.blocks[bi] = { type: 'list', ordered: kind === 'ol', direction: b.direction || 'ltr', items };
+      inlineState.blocks[bi] = { type: 'list', ordered, direction: b.direction || 'ltr', items };
     }
   } else if (kind === 'head') {
     if (b && (b.type === 'paragraph' || b.type === 'heading')) {
@@ -3670,7 +4238,7 @@ function blockOp(kind) {
   }
   renderEditor();
   restoreSelection(save);
-  if (kind === 'table') {
+  if (kind === 'table' && !hadSelection) {
     const flows = flowsInEditor();
     const t = flows.find(f => pathOf(f).startsWith(`${bi + 1}.`));
     if (t) setCaretInFlow(pathOf(t), 0);
@@ -3698,12 +4266,25 @@ function tableOp(kind, arg) {
   if (kind === 'addRow') {
     b.rows.splice(row + 1, 0, { height: b.rows[row]?.height || DEFAULT_ROW_HEIGHT, cells: b.columns.map(mkCell) });
   } else if (kind === 'delRow') {
-    if (b.rows.length > 1) b.rows.splice(row, 1);
+    if (b.rows.length <= 1) {
+      // Convert table to paragraph if it would become empty
+      const cellsText = b.rows.flatMap(r => r.cells.map(c => c.value)).join(' ');
+      inlineState.blocks[bi] = { type: 'paragraph', value: cellsText, runs: [], align: 'left', direction: b.dir };
+    } else {
+      b.rows.splice(row, 1);
+    }
   } else if (kind === 'addCol') {
     b.columns.splice(col + 1, 0, { width: b.columns[col]?.width || DEFAULT_COL_WIDTH });
     for (const r of b.rows) r.cells.splice(col + 1, 0, mkCell());
   } else if (kind === 'delCol') {
-    if (b.columns.length > 1) { b.columns.splice(col, 1); for (const r of b.rows) r.cells.splice(col, 1); }
+    if (b.columns.length <= 1) {
+      // Convert table to paragraph if it would become empty
+      const cellsText = b.rows.flatMap(r => r.cells.map(c => c.value)).join(' ');
+      inlineState.blocks[bi] = { type: 'paragraph', value: cellsText, runs: [], align: 'left', direction: b.dir };
+    } else {
+      b.columns.splice(col, 1);
+      for (const r of b.rows) r.cells.splice(col, 1);
+    }
   } else if (kind === 'border') {
     b.border = { ...b.border, ...arg };
   } else if (kind === 'colWidth') {
@@ -3811,8 +4392,8 @@ function handleBackspace() {
 // The item currently selected — requires an explicit item selection, not just its region.
 // Items are frozen outside Content mode (spec §9a), so an item is only ever "selected" there.
 function selectedItem() {
-  if (!S.pmap || !S.itemSelected || !inContent()) return null;
-  return currentRegion()?.content?.items?.[S.itemIndex] || null;
+  if (!appState.pmap || !appState.itemSelected || !inContent()) return null;
+  return currentRegion()?.content?.items?.[appState.itemIndex] || null;
 }
 
 function currentTextItem() {
@@ -3825,8 +4406,9 @@ function currentTextItem() {
 // next to them and swaps to the item actions once an item is selected. The rich-text tools
 // live in the text dialog's header, so they are visible exactly while that dialog is open
 // (and nowhere else).
+
 function refreshContextTools() {
-  const editing = isEditMode() && !!S.pmap;
+  const editing = isEditMode() && !!appState.pmap;
   const item = editing ? selectedItem() : null;
   const r = editing ? currentRegion() : null;
   const inlineText = !!(editing && inlineState && !els.inlineEdit.hidden);
@@ -3837,52 +4419,85 @@ function refreshContextTools() {
   els.textTools.hidden = !textSel;
   els.imageTools.hidden = !imgSel;
   els.regionTools.hidden = !regionSel;
+  // Coloring mode (eyedropper) toggle: shown in Region mode only; pressed while color mode
+  // is on — the same state pressing C toggles (see toggleColoringMode / spec §11).
+  if (els.btnColoringMode) {
+    const coloring = editing && inRegion();
+    els.btnColoringMode.hidden = !coloring;
+    els.btnColoringMode.setAttribute('aria-pressed', String(appState.coloringMode));
+  }
   if (els.itemTools) els.itemTools.hidden = !itemSel;
   // Add text / Add image place items, so they are the two Content-mode-only buttons of the
   // region group (spec §9a).
   if (els.regionAddTools) els.regionAddTools.hidden = !(regionSel && inContent());
   const textSelection = regionSel && selectedRegions().some(x => !isDetectedImage(x));
-  if ($('btn-translate-page-text')) $('btn-translate-page-text').hidden = S.lens !== 'translate' || !textSelection;
-  if (els.btnMakeSelectable) els.btnMakeSelectable.hidden = S.lens !== 'improve' || !textSelection;
   const tbl = inlineText ? tableTarget() : null;
-  if (els.tableTools) els.tableTools.hidden = !tbl;
+  // Border tools are always visible in toolbar row 1 (not hidden)
   if (textSel) {
     const st = editorCurrentStyle();
     els.ttBold.classList.toggle('active', !!st.bold);
     els.ttItalic.classList.toggle('active', !!st.italic);
     els.ttUnderline.classList.toggle('active', !!st.underline);
-    els.ttColor.value = st.color || '#111111';
+    // Update text color button
+    if (els.ttColorInput) els.ttColorInput.value = st.color || '#111111';
+    const letter = els.ttColor?.querySelector('.letter');
+    if (letter) letter.style.color = st.color || '#111111';
     els.ttFont.value = st.font || 'sans';
-    // Half-point steps: the fit's font lever works in 0.5 pt increments, and the dialog
-    // must show the size it chose rather than rounding it.
-    els.ttSize.value = Math.round((st.size ?? 12) * 2) / 2;
-    if (els.ttLine) els.ttLine.value = String(lineHeightOf(inlineState.style));
+    
+    // Update list buttons (toggle state)
+    const range = liveRange();
+    const el = range ? closestFlow(range.startContainer) : null;
+    const hit = el ? flowAt(inlineState.blocks, pathOf(el)) : null;
+    const block = hit?.block;
+    if (els.ttUl) els.ttUl.classList.toggle('active', block?.type === 'list' && block.ordered === false);
+    if (els.ttOl) els.ttOl.classList.toggle('active', block?.type === 'list' && block.ordered === true);
+    // Update size display
+    if (els.ttSize) {
+      const sizeVal = Math.round((st.size ?? 12) * 2) / 2;
+      els.ttSize.value = sizeVal;
+    }
+    // Update line spacing display
+    if (els.ttLine) {
+      const lineVal = String(lineHeightOf(inlineState.style));
+      els.ttLine.value = lineVal;
+    }
+    // Update alignment buttons
     const align = tbl ? (tbl.block.rows[tbl.row]?.cells?.[tbl.col]?.align) : st.align;
-    els.ttAlign.value = align || 'left';
-    els.ttDir.value = st.direction || 'ltr';
+    [els.ttAlignLeft, els.ttAlignCenter, els.ttAlignRight, els.ttAlignJustify].forEach(btn => {
+      if (btn) btn.classList.remove('active');
+    });
+    const alignMap = { left: els.ttAlignLeft, center: els.ttAlignCenter, right: els.ttAlignRight, justify: els.ttAlignJustify };
+    if (alignMap[align]) alignMap[align].classList.add('active');
+    // Update direction buttons
+    const dir = st.direction || 'ltr';
+    if (els.ttDirLtr) els.ttDirLtr.classList.toggle('active', dir === 'ltr');
+    if (els.ttDirRtl) els.ttDirRtl.classList.toggle('active', dir === 'rtl');
   } else if (imgSel) {
     els.fItemFit.value = item.fit || 'contain';
   } else if (regionSel) {
     els.fBg.value = r.content?.background || DEFAULT_BACKGROUND;
-    // Keep the region toolbar's language control on its lens: Translate's destination,
-    // or Improve's source. Setting Translate's value here would silently retarget
-    // Improve's extraction to the translation language.
-    syncLensLanguageControl();
     const lk = $('btn-lock-region');
-    if (lk) { lk.textContent = isRegionLocked(r) ? 'Unlock polygon' : 'Lock polygon'; lk.classList.toggle('active', isRegionLocked(r)); }
+    if (lk) { lk.textContent = isRegionLocked(r) ? 'Unlock region' : 'Lock region'; lk.classList.toggle('active', isRegionLocked(r)); }
   }
   if (itemSel && els.itemTools) {
     const n = r?.content?.items?.length || 0;
     if (els.btnItemFitText) els.btnItemFitText.disabled = item.type !== 'text';
-    if (els.btnItemFront) els.btnItemFront.disabled = !(n > 1 && S.itemIndex < n - 1);
-    if (els.btnItemBack) els.btnItemBack.disabled = !(n > 1 && S.itemIndex > 0);
+    if (els.btnItemFront) els.btnItemFront.disabled = !(n > 1 && appState.itemIndex < n - 1);
+    if (els.btnItemBack) els.btnItemBack.disabled = !(n > 1 && appState.itemIndex > 0);
   }
   if (tbl && els.tableTools) {
-    els.tblBorderColor.value = tbl.block.border?.color || DEFAULT_TABLE_BORDER.color;
-    els.tblBorderWidth.value = tbl.block.border?.width ?? DEFAULT_TABLE_BORDER.width;
+    const borderColor = tbl.block.border?.color || DEFAULT_TABLE_BORDER.color;
+    const borderWidth = tbl.block.border?.width ?? DEFAULT_TABLE_BORDER.width;
+    // Update table tools group (for col width, row height, table width)
+    els.tblBorderColor.value = borderColor;
+    els.tblBorderWidth.value = borderWidth;
     els.tblColW.value = Math.round(tbl.block.columns[tbl.col]?.width || DEFAULT_COL_WIDTH);
     els.tblRowH.value = Math.round(tbl.block.rows[tbl.row]?.height || DEFAULT_ROW_HEIGHT);
     if (els.tblWidth) els.tblWidth.value = Math.round(tbl.block.columns.reduce((a, c) => a + Math.max(8, Number(c.width) || DEFAULT_COL_WIDTH), 0));
+    // Update table border tools in toolbar row 1
+    if (els.tblBorderColor) els.tblBorderColor.value = borderColor;
+    if (els.tblBorderWidth) els.tblBorderWidth.value = borderWidth;
+    if (els.tblBorderSwatch) els.tblBorderSwatch.style.backgroundColor = borderColor;
   }
 }
 
@@ -3918,7 +4533,7 @@ async function commitInlineEditor() {
   const { regionId, index } = inlineState;
   let style = inlineState.style;
   let blocks = trimTrailingAfterTable(inlineState.blocks);
-  const r = getPage(S.pmap, S.page)?.regions.find(x => x.id === regionId);
+  const r = getPage(appState.pmap, appState.page)?.regions.find(x => x.id === regionId);
   const cur = index == null ? null : r?.content?.items?.[index];
   // The offer belongs to *entering* text (spec §9b: "when strongly RTL text is entered"):
   // it fires for a new box or when the text itself changed, never for merely re-opening a
@@ -3957,6 +4572,10 @@ async function commitInlineEditor() {
           if (it.type === 'text') { const g = growBoxToFit(r, it); if (g.changed) it.box = g.box; }
         }
       });
+    } else if (cur && cur.needsReview) {
+      // Pressing Done on a review-flagged item without edits still clears the flag —
+      // "Done" means "I've reviewed this" (spec §7).
+      mutateContentFor(r, 'confirm review', (c) => { c.items[index].needsReview = false; });
     } else rerender();
     if (styleChanged) {
       const it = r.content?.items?.[index];
@@ -3982,7 +4601,7 @@ async function loadEditorSourceImage(region) {
   els.textSourceImg.removeAttribute('src');
   if (!viewer.doc) return;
   try {
-    const blob = await viewer.cropPolygonBlob(S.page, regionRings(region.geometry), 2);
+    const blob = await viewer.cropPolygonBlob(appState.page, regionRings(region.geometry), 2);
     if (token !== editorSourceToken) return;
     if (!inlineState || inlineState.regionId !== region.id) return;
     const url = URL.createObjectURL(blob);
@@ -4002,6 +4621,9 @@ function clearEditorSourceImage() {
 }
 
 function closeInlineEditor() {
+  // Leave full-page mode before hiding: otherwise the saved size is never restored and the
+  // page would stay scroll-locked after the dialog closes.
+  if (textEditorFullscreen) toggleTextEditorFullscreen();
   inlineState = null;
   capturedSel = null;
   textDialogDrag = null;
@@ -4080,13 +4702,29 @@ function addPastedImage(source) {
   if (r) addImageFromSource(source);
 }
 
+// Debounced selectionchange handler using rAF to avoid running on every keystroke
+let selectionChangeFrame = 0;
 document.addEventListener('selectionchange', () => {
   if (!inlineState || els.inlineEdit.hidden) return;
   const sel = window.getSelection();
   if (!sel || !sel.rangeCount || !els.inlineEdit.contains(sel.getRangeAt(0).commonAncestorContainer)) return;
-  captureEditorSel();
-  updateActiveFlow();
-  refreshContextTools();
+  if (selectionChangeFrame) cancelAnimationFrame(selectionChangeFrame);
+  selectionChangeFrame = requestAnimationFrame(() => {
+    captureEditorSel();
+    // A pending style only applies to the caret's next typed characters. It is stale once
+    // the user selects text or moves the caret out of the marker it was set on — clear it so
+    // the toolbar reflects the actual text instead of a leftover pending format (e.g. Bold
+    // stuck active after the caret moved elsewhere).
+    if (inlineState && inlineState.pending) {
+      const range = sel.getRangeAt(0);
+      const node = range.startContainer;
+      const el = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
+      const marker = el && el.closest ? el.closest('[data-pending]') : null;
+      if (!range.collapsed || !marker) inlineState.pending = null;
+    }
+    updateActiveFlow();
+    refreshContextTools();
+  });
 });
 
 // ---- table column / row resize by dragging the grips ----
@@ -4095,6 +4733,35 @@ els.inlineEdit.addEventListener('pointerdown', (e) => {
   const t = e.target;
   const colGrip = t.closest && t.closest('.rt-colgrip');
   const rowGrip = !colGrip && t.closest && t.closest('.rt-rowgrip');
+  const tableMove = t.closest && t.closest('.rt-table-move-handle');
+  if (tableMove) {
+    e.preventDefault();
+    e.stopPropagation();
+    const tableWrap = tableMove.closest('.rt-blk.rt-table');
+    const bi = tableWrap ? +tableWrap.dataset.blk : -1;
+    const b = inlineState.blocks[bi];
+    if (!b || b.type !== 'table') return;
+    const startX = e.clientX;
+    const startOffsetX = b.offsetX || 0;
+    const move = (ev) => {
+      const delta = ev.clientX - startX;
+      const newOffsetX = Math.max(0, Math.round(startOffsetX + delta));
+      tableWrap.style.marginLeft = `${newOffsetX}px`;
+      tableMove.classList.add('dragging');
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move, true);
+      window.removeEventListener('pointerup', up, true);
+      tableMove.classList.remove('dragging');
+      // margin-left was applied live; readEditor picks it up from the DOM
+      readEditor();
+      renderEditor();
+      refreshContextTools();
+    };
+    window.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', up, true);
+    return;
+  }
   if (!colGrip && !rowGrip) return;
   e.preventDefault();
   e.stopPropagation();
@@ -4146,11 +4813,11 @@ if (els.textModal) els.textModal.addEventListener('pointerdown', (e) => {
 function mutateSelected(fn, label) {
   const ids = new Set(selectedRegions().map(r => r.id));
   if (!ids.size) return;
-  const pg = getPage(S.pmap, S.page);
+  const pg = getPage(appState.pmap, appState.page);
   const before = pg.regions.filter(r => ids.has(r.id)).map(r => structuredClone(r));
   const apply = () => { pg.regions.filter(r => ids.has(r.id)).forEach(fn); };
   const restore = () => { before.forEach(b => { const i = pg.regions.findIndex(r => r.id === b.id); if (i >= 0) pg.regions[i] = structuredClone(b); }); };
-  history.exec({ label, do() { apply(); touch(S.pmap); rerender(); }, undo() { restore(); rerender(); } });
+  history.exec({ label, do() { apply(); touch(appState.pmap); rerender(); }, undo() { restore(); rerender(); } });
 }
 
 // ---- region locking ----
@@ -4163,7 +4830,7 @@ function toggleLockSelected() {
   if (!sel.length) { setStatus('Select a region first, then press L to lock it.'); return; }
   const lock = sel.some(r => !isRegionLocked(r)); // any unlocked region in the mix => lock them all
   const ids = new Set(sel.map(r => r.id));
-  const pg = getPage(S.pmap, S.page);
+  const pg = getPage(appState.pmap, appState.page);
   const before = pg.regions.filter(r => ids.has(r.id)).map(r => ({ id: r.id, locked: isRegionLocked(r), provenance: detectionSnapshot(r) }));
   const setAll = (v) => {
     for (const b of before) {
@@ -4172,10 +4839,10 @@ function toggleLockSelected() {
       if (v) { r.locked = true; clearDetection(r); } else delete r.locked;
     }
   };
-  S.selectedVertex = null; // a picked vertex makes no sense on a frozen polygon
+  appState.selectedVertex = null; // a picked vertex makes no sense on a frozen polygon
   history.exec({
     label: lock ? 'lock region(s)' : 'unlock region(s)',
-    do() { setAll(lock); touch(S.pmap); rerender(); },
+    do() { setAll(lock); touch(appState.pmap); rerender(); },
     undo() {
       for (const b of before) {
         const r = pg.regions.find(x => x.id === b.id);
@@ -4193,7 +4860,7 @@ function toggleLockSelected() {
 function finishDraw() {
   // dedupe consecutive duplicates (dblclick adds a point then closes)
   const dedup = [];
-  for (const p of S.draft) {
+  for (const p of appState.draft) {
     const last = dedup[dedup.length - 1];
     if (!last || Math.hypot(last[0] - p[0], last[1] - p[1]) > 0.5) dedup.push(p);
   }
@@ -4203,15 +4870,15 @@ function finishDraw() {
   }
   if (!draftValid(dedup)) { setStatus('Polygon needs ≥3 points.'); return; }
   const pts = dedup.map(p => [...p]);
-  S.draft = [];
-  S.itemSelected = false; clearItemSelection();
-  S.tool = 'select'; // one-shot: polygon tool disarms after a successful draw
-  const pg = getPage(S.pmap, S.page);
-  const r = createRegion(S.page, pts);
+  appState.draft = [];
+  appState.itemSelected = false; clearItemSelection();
+  appState.tool = 'select'; // one-shot: polygon tool disarms after a successful draw
+  const pg = getPage(appState.pmap, appState.page);
+  const r = createRegion(appState.page, pts);
   history.exec({
     label: 'create region',
-    do() { pg.regions.push(r); S.selected.clear(); S.selected.add(r.id); touch(S.pmap); rerender(); },
-    undo() { pg.regions = pg.regions.filter(x => x.id !== r.id); S.selected.clear(); rerender(); },
+    do() { pg.regions.push(r); appState.selected.clear(); appState.selected.add(r.id); touch(appState.pmap); rerender(); },
+    undo() { pg.regions = pg.regions.filter(x => x.id !== r.id); appState.selected.clear(); rerender(); },
   });
 }
 
@@ -4223,12 +4890,12 @@ function deleteSelection() {
     setStatus(`Cannot delete locked region${locked.length > 1 ? 's' : ''} ${locked.map(r => r.id).join(', ')} — press L to unlock first.`);
     return;
   }
-  const pg = getPage(S.pmap, S.page);
+  const pg = getPage(appState.pmap, appState.page);
   const ids = new Set(sel.map(r => r.id));
   const removed = sel.map(r => ({ r: structuredClone(r), idx: pg.regions.findIndex(x => x.id === r.id) }));
   history.exec({
     label: 'delete region(s)',
-    do() { pg.regions = pg.regions.filter(r => !ids.has(r.id)); for (const id of ids) S.awaitingOcr.delete(id); S.selected.clear(); S.selectedVertex = null; S.itemSelected = false; clearItemSelection(); touch(S.pmap); rerender(); },
+    do() { pg.regions = pg.regions.filter(r => !ids.has(r.id)); for (const id of ids) appState.awaitingOcr.delete(id); appState.selected.clear(); appState.selectedVertex = null; appState.itemSelected = false; clearItemSelection(); touch(appState.pmap); rerender(); },
     undo() { for (const { r, idx } of removed) pg.regions.splice(Math.min(idx, pg.regions.length), 0, structuredClone(r)); rerender(); },
   });
 }
@@ -4238,22 +4905,22 @@ function deleteSelection() {
 // mode deletes the picked vertex, else the whole selected region(s).
 function deleteKey() {
   if (inContent()) {
-    if (S.itemSelection.size) deleteSelectedItems();
-    else if (S.itemSelected && selectedItem()) deleteItem();
+    if (appState.itemSelection.size) deleteSelectedItems();
+    else if (appState.itemSelected && selectedItem()) deleteItem();
     return;
   }
   if (!inRegion()) return;
-  const v = S.selectedVertex;
+  const v = appState.selectedVertex;
   if (v) {
     const r = currentRegions().find(x => x.id === v.id);
     const ring = r && regionRings(r.geometry)[v.ring ?? 0];
-    if (ring && ring.length > 3) { S.selectedVertex = null; deleteVertex(v.id, v.ring ?? 0, v.idx); return; }
+    if (ring && ring.length > 3) { appState.selectedVertex = null; deleteVertex(v.id, v.ring ?? 0, v.idx); return; }
   }
   deleteSelection();
 }
 
 function applyDragPreview(regions) {
-  const d = S.dragPreview;
+  const d = appState.dragPreview;
   if (!d) return regions;
   return regions.map(r => {
     if (r.id !== d.id) return r;
@@ -4302,27 +4969,27 @@ function resizeBox(box, corner, dx, dy) {
   return [Math.round(x), Math.round(y), Math.round(w), Math.round(h)];
 }
 function commitDrag(d, endPt) {
-  const preview = S.dragPreview;
-  S.dragPreview = null;
+  const preview = appState.dragPreview;
+  appState.dragPreview = null;
   const dx = endPt[0] - d.start[0], dy = endPt[1] - d.start[1];
   // Geometry drags on a locked region are refused (it may have been locked mid-drag).
   if (d.kind !== 'item' && d.kind !== 'item-resize') {
-    const lockedTarget = getPage(S.pmap, S.page)?.regions.find(r => r.id === d.id && isRegionLocked(r));
+    const lockedTarget = getPage(appState.pmap, appState.page)?.regions.find(r => r.id === d.id && isRegionLocked(r));
     if (lockedTarget) { setStatus(`${lockedTarget.id} is locked — press L to unlock before reshaping.`); rerender(); return; }
   }
-  if (Math.hypot(dx, dy) * S.zoom < 3) {
+  if (Math.hypot(dx, dy) * appState.zoom < 3) {
     // A click (not a drag) on an item only selects it: the selection's own handles are
     // what you grab to move/resize it, and editing a text box happens in its dialog on
     // double-click (spec §9b). A click must never open the editor.
     rerender(); return;
   } // click, not drag
-  const pg = getPage(S.pmap, S.page);
+  const pg = getPage(appState.pmap, appState.page);
   if (d.kind === 'region') {
     const target = pg.regions.find(r => r.id === d.id);
     if (!target) return;
     const before = structuredClone(regionRings(target.geometry));
     const after = before.map(ring => ring.map(p => [p[0] + dx, p[1] + dy]));
-    history.exec({ label: 'move region', do() { applyRings(target, after); touch(S.pmap); rerender(); }, undo() { applyRings(target, before); rerender(); } });
+    history.exec({ label: 'move region', do() { applyRings(target, after); touch(appState.pmap); rerender(); }, undo() { applyRings(target, before); rerender(); } });
   } else if (d.kind === 'vertex') {
     const target = pg.regions.find(r => r.id === d.id);
     if (!target) return;
@@ -4330,7 +4997,7 @@ function commitDrag(d, endPt) {
     const before = structuredClone(regionRings(target.geometry));
     const after = before.map((ring, k) => (k === ri ? ring.map((p, i) => (i === d.idx ? [endPt[0], endPt[1]] : p)) : ring));
     if (!polygonIsValid(after[ri])) { setStatus('Invalid polygon — vertex move rejected.'); rerender(); return; }
-    history.exec({ label: 'move vertex', do() { applyRings(target, after); touch(S.pmap); rerender(); }, undo() { applyRings(target, before); rerender(); } });
+    history.exec({ label: 'move vertex', do() { applyRings(target, after); touch(appState.pmap); rerender(); }, undo() { applyRings(target, before); rerender(); } });
   } else if (d.kind === 'edge') {
     const target = pg.regions.find(r => r.id === d.id);
     if (!target) return;
@@ -4339,7 +5006,7 @@ function commitDrag(d, endPt) {
     const n = before[ri].length, i = d.idx, j = (d.idx + 1) % n;
     const after = before.map((ring, k) => (k === ri ? ring.map((p, ki) => (ki === i || ki === j ? [p[0] + dx, p[1] + dy] : [p[0], p[1]])) : ring));
     if (!polygonIsValid(after[ri])) { setStatus('Invalid polygon — edge move rejected.'); rerender(); return; }
-    history.exec({ label: 'move edge', do() { applyRings(target, after); touch(S.pmap); rerender(); }, undo() { applyRings(target, before); rerender(); } });
+    history.exec({ label: 'move edge', do() { applyRings(target, after); touch(appState.pmap); rerender(); }, undo() { applyRings(target, before); rerender(); } });
   } else if (d.kind === 'item' || d.kind === 'item-resize') {
     const target = pg.regions.find(r => r.id === d.id);
     const it = target?.content?.items?.[d.idx];
@@ -4356,7 +5023,7 @@ function commitDrag(d, endPt) {
       do() {
         it.box = after.map(v => v);
         if (scaleK !== 1) scaleTextItem(it, scaleK);
-        touch(S.pmap); rerender();
+        touch(appState.pmap); rerender();
       },
       undo() {
         it.box = before;
@@ -4390,12 +5057,12 @@ function insertVertexOnRegion(id, pdfPt, ring = 0) {
   const pts = rings[ring];
   if (!pts) return;
   const { edge, dist, t } = nearestEdgeIndex(pts, pdfPt);
-  if (dist * S.zoom >= 12) return;
+  if (dist * appState.zoom >= 12) return;
   const a = pts[edge], b = pts[(edge + 1) % pts.length];
   const np = [a[0] + (b[0]-a[0]) * t, a[1] + (b[1]-a[1]) * t];
   const before = structuredClone(rings);
   const after = rings.map((rg, k) => (k === ring ? [...rg.slice(0, edge + 1), np, ...rg.slice(edge + 1)] : rg.map(p => [...p])));
-  history.exec({ label: 'add vertex', do() { applyRings(r, after); touch(S.pmap); rerender(); }, undo() { applyRings(r, before); rerender(); } });
+  history.exec({ label: 'add vertex', do() { applyRings(r, after); touch(appState.pmap); rerender(); }, undo() { applyRings(r, before); rerender(); } });
 }
 
 // Double-click a vertex -> snap that corner to a right angle (90°).
@@ -4416,11 +5083,11 @@ function makeRightAngle(id, ring, idx) {
   const afterPts = pts.map((p, i) => (i === idx ? [np[0], np[1]] : [...p]));
   if (!polygonIsValid(afterPts)) { setStatus('Right angle rejected.'); rerender(); return; }
   const after = rings.map((rg, k) => (k === ring ? afterPts : rg));
-  history.exec({ label: 'right angle', do() { applyRings(r, after); touch(S.pmap); rerender(); }, undo() { applyRings(r, before); rerender(); } });
+  history.exec({ label: 'right angle', do() { applyRings(r, after); touch(appState.pmap); rerender(); }, undo() { applyRings(r, before); rerender(); } });
 }
 
 function deleteVertex(id, ring, idx) {
-  const pg = getPage(S.pmap, S.page);
+  const pg = getPage(appState.pmap, appState.page);
   const r = pg.regions.find(x => x.id === id);
   if (!r) return;
   if (isRegionLocked(r)) { setStatus(`${r.id} is locked — press L to unlock before deleting vertices.`); return; }
@@ -4430,7 +5097,7 @@ function deleteVertex(id, ring, idx) {
   if (pts.length <= 3) { setStatus('A polygon needs ≥3 vertices.'); return; }
   const before = structuredClone(rings);
   const after = rings.map((rg, k) => (k === ring ? rg.filter((_, i) => i !== idx) : rg));
-  history.exec({ label: 'delete vertex', do() { applyRings(r, after); touch(S.pmap); rerender(); }, undo() { applyRings(r, before); rerender(); } });
+  history.exec({ label: 'delete vertex', do() { applyRings(r, after); touch(appState.pmap); rerender(); }, undo() { applyRings(r, before); rerender(); } });
 }
 
 // ---- merge / split ----
@@ -4443,7 +5110,7 @@ function mergeSelected() {
     setStatus(`Cannot merge: ${locked.map(r => r.id).join(', ')} locked — press L to unlock first.`);
     return;
   }
-  const pg = getPage(S.pmap, S.page);
+  const pg = getPage(appState.pmap, appState.page);
   // Union of every selected region, whether or not they overlap: the result is one
   // ring (they touch) or several (a multi-part region). unionRings() reports every
   // part, so nothing is ever silently dropped.
@@ -4464,39 +5131,39 @@ function mergeSelected() {
   }
   const ids = new Set(sel.map(r => r.id));
   const removed = sel.map(r => ({ r: structuredClone(r), idx: pg.regions.findIndex(x => x.id === r.id) }));
-  const nr = createRegion(S.page, rings.length === 1 ? rings[0] : rings, rings.length === 1 ? 'polygon' : 'multipolygon');
+  const nr = createRegion(appState.page, rings.length === 1 ? rings[0] : rings, rings.length === 1 ? 'polygon' : 'multipolygon');
   nr.content = { background: sel[0].content?.background || DEFAULT_BACKGROUND, items };
   history.exec({
     label: 'merge regions',
-    do() { pg.regions = pg.regions.filter(r => !ids.has(r.id)); for (const id of ids) S.awaitingOcr.delete(id); pg.regions.push(nr); S.selected.clear(); S.selected.add(nr.id); touch(S.pmap); rerender(); },
-    undo() { pg.regions = pg.regions.filter(r => r.id !== nr.id); for (const { r, idx } of removed) pg.regions.splice(Math.min(idx, pg.regions.length), 0, structuredClone(r)); S.selected.clear(); sel.forEach(r => S.selected.add(r.id)); rerender(); },
+    do() { pg.regions = pg.regions.filter(r => !ids.has(r.id)); for (const id of ids) appState.awaitingOcr.delete(id); pg.regions.push(nr); appState.selected.clear(); appState.selected.add(nr.id); touch(appState.pmap); rerender(); },
+    undo() { pg.regions = pg.regions.filter(r => r.id !== nr.id); for (const { r, idx } of removed) pg.regions.splice(Math.min(idx, pg.regions.length), 0, structuredClone(r)); appState.selected.clear(); sel.forEach(r => appState.selected.add(r.id)); rerender(); },
   });
   setStatus(`Merged ${sel.length} regions into ${nr.id}${rings.length > 1 ? ` (${rings.length} parts)` : ''}.`);
 }
 
 function finishSplit() {
-  if (S.splitPts.length < 2) { setStatus('Split: click 2+ points for the dividing line, then Enter.'); return; }
+  if (appState.splitPts.length < 2) { setStatus('Split: click 2+ points for the dividing line, then Enter.'); return; }
   const sel = selectedRegions();
-  if (sel.length !== 1) { setStatus('Split: select exactly one region first.'); S.splitPts = []; S.tool = 'select'; rerender(); return; }
+  if (sel.length !== 1) { setStatus('Split: select exactly one region first.'); appState.splitPts = []; appState.tool = 'select'; rerender(); return; }
   const r = sel[0];
-  if (isRegionLocked(r)) { setStatus(`${r.id} is locked — press L to unlock before splitting.`); S.splitPts = []; S.tool = 'select'; rerender(); return; }
-  if (regionRings(r.geometry).length > 1) { setStatus('Split needs a single-part region (this one was merged from separate areas).'); S.splitPts = []; S.tool = 'select'; rerender(); return; }
-  const A = S.splitPts[0], B = S.splitPts[S.splitPts.length - 1];
-  S.splitPts = [];
+  if (isRegionLocked(r)) { setStatus(`${r.id} is locked — press L to unlock before splitting.`); appState.splitPts = []; appState.tool = 'select'; rerender(); return; }
+  if (regionRings(r.geometry).length > 1) { setStatus('Split needs a single-part region (this one was merged from separate areas).'); appState.splitPts = []; appState.tool = 'select'; rerender(); return; }
+  const A = appState.splitPts[0], B = appState.splitPts[appState.splitPts.length - 1];
+  appState.splitPts = [];
   let parts;
   try { parts = splitPolygonByLine(regionRings(r.geometry)[0], A, B); } catch (e) { parts = null; }
-  if (!parts) { setStatus('Split failed — line must cross the polygon.'); S.tool = 'select'; rerender(); return; }
-  const pg = getPage(S.pmap, S.page);
+  if (!parts) { setStatus('Split failed — line must cross the polygon.'); appState.tool = 'select'; rerender(); return; }
+  const pg = getPage(appState.pmap, appState.page);
   const orig = structuredClone(r);
   const idx = pg.regions.findIndex(x => x.id === r.id);
-  const a = createRegion(S.page, parts[0]); a.content = structuredClone(r.content);
-  const b = createRegion(S.page, parts[1]); b.content = structuredClone(r.content);
+  const a = createRegion(appState.page, parts[0]); a.content = structuredClone(r.content);
+  const b = createRegion(appState.page, parts[1]); b.content = structuredClone(r.content);
   history.exec({
     label: 'split region',
-    do() { pg.regions.splice(idx, 1, a, b); S.awaitingOcr.delete(r.id); S.selected.clear(); S.selected.add(a.id); S.selected.add(b.id); touch(S.pmap); rerender(); },
-    undo() { pg.regions = pg.regions.filter(x => x.id !== a.id && x.id !== b.id); pg.regions.splice(Math.min(idx, pg.regions.length), 0, orig); S.selected.clear(); S.selected.add(orig.id); rerender(); },
+    do() { pg.regions.splice(idx, 1, a, b); appState.awaitingOcr.delete(r.id); appState.selected.clear(); appState.selected.add(a.id); appState.selected.add(b.id); touch(appState.pmap); rerender(); },
+    undo() { pg.regions = pg.regions.filter(x => x.id !== a.id && x.id !== b.id); pg.regions.splice(Math.min(idx, pg.regions.length), 0, orig); appState.selected.clear(); appState.selected.add(orig.id); rerender(); },
   });
-  S.tool = 'select';
+  appState.tool = 'select';
 }
 
 // ---- image content ----
@@ -4504,77 +5171,110 @@ async function cropImageForSelected() {
   const r = currentRegion();
   if (!r) { setStatus('Select exactly one region.'); return; }
   const [x0, y0, x1, y1] = regionBBox(r.geometry);
-  const cur = r.content?.items?.[S.itemIndex];
+  const cur = r.content?.items?.[appState.itemIndex];
   let bbox = [x0, y0, x1, y1];
   if (cur && cur.type === 'image') {
     const b = cur.box || [0, 0, x1 - x0, y1 - y0];
     bbox = [x0 + b[0], y0 + b[1], x0 + b[0] + b[2], y0 + b[1] + b[3]];
   }
   try {
-    const url = await viewer.cropDataUrl(S.page, bbox);
+    const url = await viewer.cropDataUrl(appState.page, bbox);
     if (cur && cur.type === 'image') {
       editItem(i => { i.source = url; }, 'set image crop');
     } else {
       const [w, h] = regionSize(r);
-      mutateContent('add image crop', (c) => { c.items.push(createImageItem({ source: url, box: [0, 0, w, h] })); S.itemIndex = c.items.length - 1; S.itemSelected = true; clearItemSelection(); });
+      mutateContent('add image crop', (c) => { c.items.push(createImageItem({ source: url, box: [0, 0, w, h] })); appState.itemIndex = c.items.length - 1; appState.itemSelected = true; clearItemSelection(); });
     }
     setStatus('Cropped page area into an image item.');
   } catch (e) { setStatus('Crop failed: ' + e.message); }
 }
 
 // ---- save / export ----
-// A project is two files on disk, so they can be saved together or separately:
-//   'both'    Ctrl/Cmd+S — the whole project
-//   'map'     the shared structure only
-//   'content' the active content variant only
-async function saveProjectPart(what = 'both') {
-  if (!S.pmap || !S.project) return;
+// A project is saved as a ZIP file containing a folder named after the PDF
+// (without the .pdf extension), with the map and content variant(s) inside.
+function pdfFolderName() {
+  const name = appState.pdfName || 'document';
+  return name.replace(/\.pdf$/i, '') || 'document';
+}
+
+// Export the project (Ctrl/Cmd+S) — the shared map plus the active content variant —
+// into a folder-named ZIP on the user's file system.
+async function exportProjectPart(what = 'both') {
+  if (!appState.pmap) return;
   try {
     const { map, content, changed, mapText, contentText } = await projectTexts();
+    const folder = pdfFolderName();
+    const JSZip = await getJSZip();
+    const zip = new JSZip();
+    const dir = zip.folder(folder);
     const names = [];
     if (what !== 'content') {
-      downloadText(map.meta.name, mapText);
-      S.project.map = { ...S.project.map, modified: map.meta.modified };
-      S.project.saved.map = canonical(map);
-      names.push(map.meta.name);
+      dir.file(map.meta.name, mapText);
+      if (appState.content) {
+        appState.content.mapModified = map.meta.modified;
+        appState.content.savedMap = canonical(map);
+      } else {
+        appState.savedMap = canonical(map);
+        appState.mapModified = map.meta.modified;
+      }
+      names.push(`${folder}/${map.meta.name}`);
     }
-    if (what !== 'map') {
-      downloadText(content.meta.name, contentText);
-      S.project.content = { ...S.project.content, modified: content.meta.modified };
-      S.project.saved.content = canonical(content);
-      names.push(content.meta.name);
+    if (appState.content && what !== 'map') {
+      dir.file(content.meta.name, contentText);
+      appState.content = { ...appState.content, modified: content.meta.modified };
+      appState.content.savedContent = canonical(content);
+      names.push(`${folder}/${content.meta.name}`);
+      // Save holds every loaded variant, not just the active one: write each
+      // variant known this session plus both IndexedDB slots into the ZIP so
+      // nothing is lost. Deduped by variant identity so the active variant (just
+      // written above) isn't duplicated, and the same variant from a slot isn't
+      // written twice either.
+      if (what === 'both') {
+        const activeKey = variantKey(content);
+        const byKey = new Map();
+        const addVariant = (c, defaultName) => {
+          if (!c || c.mapId !== appState.content.mapId) return;
+          const k = variantKey(c);
+          if (k === activeKey) return; // already written as the active variant
+          byKey.set(k, { content: c, name: defaultName || c.meta.name });
+        };
+        for (const v of appState.variants) addVariant(v.content);
+        // One IndexedDB content slot ('content') holds the active variant — already
+        // written above. There are no separate 'translate'/'improve' slots.
+        for (const { content: c, name } of byKey.values()) {
+          const text = serializeContent(c);
+          dir.file(name, text);
+          names.push(`${folder}/${name}`);
+        }
+      }
     }
-    if (what !== 'content') S.dirtySides.map = false;
-    if (what !== 'map') S.dirtySides.content = false;
-    // Only say which half had changed when the save covered both: a single-file save is
-    // asked for explicitly, so which one changed is not interesting then.
+    if (what !== 'content') appState.dirtySides.map = false;
+    if (appState.content && what !== 'map') appState.dirtySides.content = false;
+    // Persist the exported state to IndexedDB so the session (and a refresh) sees the
+    // same backgrounds and content that just went into the ZIP.
+    if (appState.content) {
+      await saveSessionProject({ mapJson: mapText, mapName: appState.pmap.meta?.name, contentJson: contentText, contentName: appState.content.name });
+    } else {
+      await saveSessionProject({ mapJson: mapText, mapName: appState.pmap.meta?.name, contentJson: null, contentName: null });
+    }
+    const blob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(blob, `${folder}.zip`);
     const only = what === 'both' && changed.map !== changed.content ? ` (only the ${changed.map ? 'shared map' : 'content variant'} had changed)` : '';
-    setStatus(`Exported ${names.join(' + ')}.${only}`);
+    setStatus(`Exported ${names.join(' + ')} into ${folder}.zip.${only}`);
     refreshMapInfo();
   } catch (e) { setStatus('Export failed: ' + e.message); }
 }
 
-// Export one lens's content variant straight from its IndexedDB slot as a file, regardless
-// of which lens is active. This is an export of what is persisted for that lens.
-async function exportContentSlot(slot) {
-  if (!S.pmap || !S.project) return;
-  try {
-    const saved = await loadSessionContent(slot);
-    if (!saved?.json) { setStatus(`No ${slot} content variant saved yet — switch to the ${slot} workflow to create one.`); return; }
-    downloadText(saved.name || `${defaultContentName(S.project.map.name, slot)}.content.json`, saved.json);
-    setStatus(`Exported ${saved.name || 'content'} (${slot} content variant).`);
-  } catch (e) { setStatus('Export failed: ' + e.message); }
-}
-
+// ---- image export ----
 async function doExport() {
-  if (!S.pmap) return;
+  if (!appState.pmap) return;
   setStatus('Exporting…');
   try {
-    const bytes = await exportReconstruction({ pmap: S.pmap, viewer, onProgress: (n, t) => setStatus(`Exporting ${n}/${t}…`) });
+    const bytes = await exportReconstruction({ pmap: appState.pmap, viewer, onProgress: (n, t) => setStatus(`Exporting ${n}/${t}…`) });
     const blob = new Blob([bytes], { type: 'application/pdf' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = (S.pdfName || 'document.pdf').replace(/\.pdf$/i, '') + '.recon.pdf';
+    a.download = (appState.pdfName || 'document.pdf').replace(/\.pdf$/i, '') + '.recon.pdf';
     document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
     setStatus('Exported reconstructed PDF (source untouched).');
@@ -4591,7 +5291,7 @@ async function doExport() {
 function sourceExtractionPreflight() {
   let regions = 0, figures = 0;
   const pages = new Set();
-  for (const pg of S.pmap?.pages || []) {
+  for (const pg of appState.pmap?.pages || []) {
     let textRegions = 0;
     for (const r of pg.regions || []) {
       if (isDetectedImage(r)) figures += 1;
@@ -4603,8 +5303,8 @@ function sourceExtractionPreflight() {
 }
 
 async function doExportDigital() {
-  if (!S.pdfBytes || !S.pmap || !S.project) { setStatus('Open a PDF first.'); return; }
-  let source = S.pdfLanguage ? sourceVariantFor(S.pdfLanguage) : null;
+  if (!appState.pdfBytes || !appState.pmap || !appState.content) { setStatus('Open a PDF first.'); return; }
+  let source = appState.pdfLanguage ? sourceVariantFor(appState.pdfLanguage) : null;
   if (!source) {
     const n = sourceExtractionPreflight();
     const count = n.regions
@@ -4618,8 +5318,8 @@ async function doExportDigital() {
     if (!res) { setStatus('Export cancelled — nothing was written.'); return; }
     try { await extractAllPagesContent(); }
     catch (e) { setStatus('Export failed: ' + e.message); return; }
-    if (!S.pdfLanguage) { setStatus('Export cancelled — no extraction ran.'); return; }
-    source = sourceVariantFor(S.pdfLanguage);
+    if (!appState.pdfLanguage) { setStatus('Export cancelled — no extraction ran.'); return; }
+    source = sourceVariantFor(appState.pdfLanguage);
     if (!source) {
       setStatus('Export cancelled — Selectable text is not loaded.');
       return;
@@ -4633,25 +5333,24 @@ async function doExportDigital() {
     setStatus('Export failed: ' + e.message);
     return;
   }
-  const name = digitalizedPdfName(S.pdfName);
+  const name = digitalizedPdfName(appState.pdfName);
   setStatus('Exporting digitalized PDF…');
   try {
     const result = await exportDigitalizedPdf({
-      pdfBytes: S.pdfBytes, pmap: S.pmap, content, awaitingOcr: S.awaitingOcr,
+      pdfBytes: appState.pdfBytes, pmap: appState.pmap, content, awaitingOcr: appState.awaitingOcr,
       onProgress: (n, t) => setStatus(`Exporting digitalized PDF ${n}/${t}…`),
     });
     downloadBlob(new Blob([result.bytes], { type: 'application/pdf' }), name);
     const notes = [];
     if (result.unsupported) notes.push(`${result.unsupported} text run(s) could not be embedded`);
     if (result.fontWarning) notes.push(result.fontWarning);
-    const summary = digitalizationSummary(result.stats).replace('awaiting OCR', lensCopy().missing);
+    const summary = digitalizationSummary(result.stats).replace('awaiting OCR', workflowCopy().missing);
     setStatus(`Exported ${name} — ${summary}${notes.length ? `; ${notes.join('; ')}` : ''}; source untouched.`);
   } catch (e) {
     setStatus('Export failed: ' + e.message);
   }
 }
 
-function setStatus(t) { els.status.textContent = t; }
 
 // Download progress for long provider work (chrome-ai's one-time model download).
 function setProgress(fraction, label) {
@@ -4676,7 +5375,7 @@ function clearProgress() {
 // ================= copy / context menu / translation =================
 
 function loadSettings() {
-  let s = { provider: DEFAULT_PROVIDER, endpoint: '', endpoints: {}, apiKey: '', targetLang: 'de', selectableLang: '', sourceLang: 'auto', textPadding: DEFAULT_TEXT_PADDING, detectOverlap: DEFAULT_DETECT_OVERLAP, extractAfterDetect: false, detectTier: 'auto', cvEngine: 'classical', ocrEngine: 'tesseract', defaultLens: 'translate' };
+  let s = { provider: DEFAULT_PROVIDER, endpoint: '', endpoints: {}, apiKey: '', targetLang: 'de', selectableLang: '', sourceLang: 'auto', textPadding: DEFAULT_TEXT_PADDING, detectOverlap: DEFAULT_DETECT_OVERLAP, extractAfterDetect: false, detectTier: 'auto', cvEngine: 'classical', ocrEngine: 'tesseract', defaultFont: 'sans', defaultSize: DEFAULT_STYLE.size, defaultLineHeight: DEFAULT_LINE_HEIGHT };
   try { Object.assign(s, JSON.parse(localStorage.getItem('pmap.settings') || '{}')); } catch {}
   if (!s.endpoints || typeof s.endpoints !== 'object') s.endpoints = {};
   // A missing (older build) or nonsense padding falls back to the default; the value
@@ -4686,10 +5385,6 @@ function loadSettings() {
   s.detectTier = clampDetectTier(s.detectTier);
   s.cvEngine = clampCvEngine(s.cvEngine);
   s.ocrEngine = clampOcrEngine(s.ocrEngine);
-  // The general tab's own value: an unknown workflow name falls back to Translate, the
-  // same default a fresh install starts with. (loadSettings() runs before LENS_COPY is
-  // initialized, so the check is the literal list, not the shared table.)
-  if (s.defaultLens !== 'translate' && s.defaultLens !== 'improve') s.defaultLens = 'translate';
   // Earlier builds kept a single URL (used by the custom-URL provider). Move it to
   // the per-provider map so it survives switching servers.
   if (String(s.endpoint || '').trim()) s.endpoints.libretranslate = s.endpoint;
@@ -4721,7 +5416,7 @@ async function copySelectedAsImage() {
   const r = firstSelected();
   if (!r || !viewer.doc) { setStatus('Select a region first.'); return; }
   try {
-    const blob = await viewer.cropPolygonBlob(S.page, regionRings(r.geometry), 2);
+    const blob = await viewer.cropPolygonBlob(appState.page, regionRings(r.geometry), 2);
     if (!window.ClipboardItem || !navigator.clipboard?.write) {
       downloadBlob(blob, `${r.id}.png`); setStatus('Clipboard unsupported — downloaded PNG instead.'); return;
     }
@@ -4766,7 +5461,7 @@ function buildCtxMenu(e, items) {
 
 function showRegionContextMenu(e, id) {
   e.preventDefault();
-  if (!S.selected.has(id)) selectSingle(id);
+  if (!appState.selected.has(id)) selectSingle(id);
   // Content mode (spec §9a): the region menu is only the two "place an item" entries —
   // copy/translate/merge/split/lock/delete are geometry or whole-region work and belong to
   // Region mode, so an editorial right-click can never split or delete the polygon.
@@ -4783,24 +5478,24 @@ function showRegionContextMenu(e, id) {
   // one-region action: it targets the region that was right-clicked, never the rest of the
   // selection. That is what "for that region only" means in the UI.
   const ocrTarget = regionById(id);
-  const targetAwaiting = !!ocrTarget && S.awaitingOcr.has(id) && !isDetectedImage(ocrTarget);
+  const targetAwaiting = !!ocrTarget && appState.awaitingOcr.has(id) && !isDetectedImage(ocrTarget);
   const anyUnlocked = selectedRegions().some(x => !isRegionLocked(x));
-  const targetLang = els.fTargetLang.value || settings.targetLang || 'de';
+  const targetLang = activeTargetLanguage();
   buildCtxMenu(e, [
     { label: 'Add text', fn: addTextItem },
     { label: 'Add image', fn: addImageItem },
     { sep: true },
     { label: 'Copy underlying content as image', fn: copySelectedAsImage },
     { label: 'Copy underlying content as text', fn: copySelectedText, enabled: hasText },
-    ...(S.lens === 'translate' ? [
+    ...(contentIsTranslate() ? [
       { label: `Translate to “${targetLang}”`, fn: () => translateSelected(), enabled: hasText },
       { label: 'Translate from page text…', fn: () => translateFromPageText() },
     ] : []),
-    ...(targetAwaiting ? [{ label: lensCopy().ocrAction, fn: () => ocrRegions([ocrTarget]) }] : []),
+    ...(targetAwaiting ? [{ label: workflowCopy().ocrAction, fn: () => ocrRegions([ocrTarget]) }] : []),
     { sep: true },
-    { label: anyUnlocked ? 'Lock polygon (L)' : 'Unlock polygon (L)', fn: toggleLockSelected },
-    { label: 'Merge selected regions', fn: mergeSelected, enabled: S.selected.size >= 2 },
-    { label: 'Split region…', fn: startSplit, enabled: S.selected.size === 1 },
+    { label: anyUnlocked ? 'Lock region (L)' : 'Unlock region (L)', fn: toggleLockSelected },
+    { label: 'Merge selected regions', fn: mergeSelected, enabled: appState.selected.size >= 2 },
+    { label: 'Split region…', fn: startSplit, enabled: appState.selected.size === 1 },
     { sep: true },
     { label: 'Delete region(s)', fn: deleteSelection },
   ]);
@@ -4812,7 +5507,7 @@ function showVertexContextMenu(e, id, ring, idx) {
   const r = regionById(id);
   if (!r) return;
   selectSingle(id);
-  S.selectedVertex = { id, ring, idx };
+  appState.selectedVertex = { id, ring, idx };
   rerender();
   const pts = regionRings(r.geometry)[ring] || [];
   buildCtxMenu(e, [
@@ -4824,8 +5519,8 @@ function showVertexContextMenu(e, id, ring, idx) {
 function showItemContextMenu(e, id, idx) {
   e.preventDefault();
   if (!inContent()) return; // the item menu exists only in Content mode (spec §9a)
-  if (!S.selected.has(id)) selectSingle(id);
-  S.itemSelected = true; S.itemIndex = idx; clearItemSelection();
+  if (!appState.selected.has(id)) selectSingle(id);
+  appState.itemSelected = true; appState.itemIndex = idx; clearItemSelection();
   rerender();
   const items = regionById(id)?.content?.items || [];
   const n = items.length;
@@ -4833,16 +5528,16 @@ function showItemContextMenu(e, id, idx) {
   const menu = [];
   if (isText) menu.push({ label: 'Resize to text', fn: () => resizeItemToText(id, idx) }, { sep: true });
   menu.push(
-    { label: 'Bring to front', fn: () => { S.itemIndex = idx; moveItemTo('front'); }, enabled: n > 1 && idx < n - 1 },
-    { label: 'Send to back', fn: () => { S.itemIndex = idx; moveItemTo('back'); }, enabled: n > 1 && idx > 0 },
+    { label: 'Bring to front', fn: () => { appState.itemIndex = idx; moveItemTo('front'); }, enabled: n > 1 && idx < n - 1 },
+    { label: 'Send to back', fn: () => { appState.itemIndex = idx; moveItemTo('back'); }, enabled: n > 1 && idx > 0 },
     { sep: true },
-    { label: 'Delete item', fn: () => { S.itemIndex = idx; deleteItem(); } },
+    { label: 'Delete item', fn: () => { appState.itemIndex = idx; deleteItem(); } },
   );
   buildCtxMenu(e, menu);
 }
 
 function startSplit() {
-  if (!inRegion() || S.selected.size !== 1) return;
+  if (!inRegion() || appState.selected.size !== 1) return;
   const r = currentRegion();
   if (r && isRegionLocked(r)) { setStatus(`${r.id} is locked — press L to unlock before splitting.`); return; }
   setTool('split');
@@ -4875,8 +5570,8 @@ function overlengthNote(items) {
 async function translateSelected() {
   const sel = selectedRegions().filter(r => firstTextItem(r.content));
   if (!sel.length) { setStatus('Select region(s) with a text item.'); return; }
-  const targetLang = els.fTargetLang.value || settings.targetLang || 'de';
-  const sourceLang = sourceLangValue();
+  const targetLang = activeTargetLanguage();
+  const sourceLang = activeSourceLanguage();
   if (settings.provider === 'none') { setStatus('Set a translation provider in Preferences…, or use the manual copy/paste workflow.'); return; }
   const svc = makeTranslationService(settings, { onProgress: setProgress });
   setStatus(`Translating ${sel.length} region(s) → ${targetLang}…`);
@@ -4893,7 +5588,7 @@ async function translateSelected() {
   } finally { clearProgress(); }
   const ok = results.filter(x => !x.error);
   if (!ok.length) { setStatus('Translation failed: ' + (results[0]?.error || 'unknown')); return; }
-  const pg = getPage(S.pmap, S.page);
+  const pg = getPage(appState.pmap, appState.page);
   const before = [];
   const apply = () => {
     for (const { id, text } of ok) {
@@ -4915,7 +5610,7 @@ async function translateSelected() {
         autoFitItemToRegion(r, it);
       }
     }
-    touch(S.pmap);
+    touch(appState.pmap);
   };
   const restore = () => {
     for (const b of before) { const r = pg.regions.find(x => x.id === b.id); if (r) r.content = b.content; }
@@ -4942,7 +5637,7 @@ function extractReasonMessage(reason, id, ex = {}) {
 // a language dropdown (never a native prompt), prefilled with the current target.
 function askTargetLanguage(sourceLang) {
   const source = String(sourceLang || '').toLowerCase();
-  const suggested = String(els.fTargetLang.value || settings.targetLang || 'de').toLowerCase();
+  const suggested = String(els.fTargetLang?.value || settings.targetLang || 'de').toLowerCase();
   const fallback = suggested !== source ? suggested : (source === 'de' ? 'fr' : 'de');
   return promptSelect({
     title: 'Translate into which language?',
@@ -4982,7 +5677,7 @@ function applySourceWrites(writes) {
     const before = active.map(w => ({ r: w.r, content: structuredClone(w.r.content) }));
     history.exec({
       label: 'extract content',
-      do() { for (const w of active) applyExtraction(w); touch(S.pmap); rerender(); },
+      do() { for (const w of active) applyExtraction(w); touch(appState.pmap); rerender(); },
       undo() { for (const b of before) b.r.content = structuredClone(b.content); rerender(); },
     });
   }
@@ -4996,15 +5691,21 @@ function applySourceWrites(writes) {
 // Switch to a target variant, reusing a remembered one; create an empty one when the
 // session has none. This is an app-initiated switch: the outgoing source is cached by
 // switchContentVariant(), so it is not a discard and does not stop to ask.
-async function switchToTargetVariant(targetLang) {
-  const remembered = findRememberedVariant(targetLang);
+async function switchToTargetVariant(pdfLang, targetLang) {
+  // Look for a remembered target variant: source === PDF's language, destination === target.
+  const remembered = appState.variants.find(v =>
+    v.content.mapId === appState.content?.mapId &&
+    String(v.content.meta?.sourceLanguage || '').toLowerCase() === String(pdfLang || '').toLowerCase() &&
+    String(v.content.meta?.destinationLanguage || '').toLowerCase() === String(targetLang || '').toLowerCase()
+  )?.content;
   if (remembered) return switchContentVariant(remembered, { guard: false });
   const { map } = await projectTexts();
   const next = emptyContentVariant({
     mapId: map.mapId,
-    language: targetLang,
+    sourceLanguage: pdfLang,
+    destinationLanguage: targetLang,
     label: languageName(targetLang),
-    name: defaultContentName(map.meta.name, targetLang),
+    name: defaultContentName(map.meta.name, pdfLang, targetLang),
   });
   return switchContentVariant(next, { guard: false });
 }
@@ -5013,7 +5714,7 @@ async function switchToTargetVariant(targetLang) {
 // is still empty (spec 1.5 §22). Returns { text, hints } or { error }.
 async function translateFromVariant(sel, { pdfLang, source, targetLang, chosenSource }) {
   const activeIsSource = source.active;
-  const sourceName = activeIsSource ? S.project.content.name : (source.content.meta?.name || `${pdfLang} variant`);
+  const sourceName = activeIsSource ? appState.content.name : (source.content.meta?.name || `${pdfLang} variant`);
   const target = activeIsSource && targetLang === pdfLang ? askTargetLanguage(pdfLang) : targetLang;
   if (!target) return { cancelled: true };
 
@@ -5021,7 +5722,7 @@ async function translateFromVariant(sel, { pdfLang, source, targetLang, chosenSo
   let page = null, viewport = null;
   const openPage = async () => {
     if (!page) {
-      page = await viewer.doc.getPage(S.page);
+      page = await viewer.doc.getPage(appState.page);
       viewport = page.getViewport({ scale: 1 });
     }
     return { page, viewport };
@@ -5073,15 +5774,15 @@ async function translateFromVariant(sel, { pdfLang, source, targetLang, chosenSo
   // If the active variant is the source, the target is elsewhere. Switch only after the
   // source text has been read (and any extraction written), so nothing is lost.
   if (activeIsSource) {
-    if (!(await switchToTargetVariant(target))) {
+    if (!(await switchToTargetVariant(pdfLang, target))) {
       setStatus('Translation cancelled — the target variant was not opened.');
       return { cancelled: true };
     }
   }
 
   // Re-resolve the target regions after a possible switch: installProject() replaced
-  // S.pmap's objects, so the selection's region objects no longer belong to the model.
-  const targetPage = getPage(S.pmap, S.page);
+  // appState.pmap's objects, so the selection's region objects no longer belong to the model.
+  const targetPage = getPage(appState.pmap, appState.page);
   const run = makeRunChoice();
   const plan = [];
   for (const d of done) {
@@ -5109,15 +5810,15 @@ async function translateFromVariant(sel, { pdfLang, source, targetLang, chosenSo
   // in, so the canvas and the items panel show the result instead of the source's old
   // rows. (Without a switch the selection is already the one the user made.)
   if (activeIsSource) {
-    S.selected = new Set(plan.map(d => d.r.id));
-    S.itemIndex = 0; S.itemSelected = false; clearItemSelection();
+    appState.selected = new Set(plan.map(d => d.r.id));
+    appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
   }
 
   // One undo step covers the whole batch, region growth included.
   const before = plan.map(d => ({ r: d.r, content: structuredClone(d.r.content), rings: structuredClone(regionRings(d.r.geometry)) }));
   history.exec({
     label: 'translate from page text',
-    do() { for (const d of plan) d.item = applyTranslation(d); touch(S.pmap); rerender(); },
+    do() { for (const d of plan) d.item = applyTranslation(d); touch(appState.pmap); rerender(); },
     undo() { for (const b of before) { b.r.content = structuredClone(b.content); applyRings(b.r, b.rings); } rerender(); },
   });
 
@@ -5136,7 +5837,7 @@ async function translateFromPageDirect(sel, { targetLang, chosenSource, pdfLang 
   const note = pdfLang ? ` (the ${pdfLang} source variant isn’t loaded — read the page directly)` : '';
   setStatus(`Reading page text under ${sel.length} region(s)${note}…`);
   let page;
-  try { page = await viewer.doc.getPage(S.page); }
+  try { page = await viewer.doc.getPage(appState.page); }
   catch (e) { setStatus(`Could not read the page: ${e.message}`); return { cancelled: true }; }
   const viewport = page.getViewport({ scale: 1 });
   const svc = makeTranslationService(settings, { onProgress: setProgress });
@@ -5188,7 +5889,7 @@ async function translateFromPageDirect(sel, { targetLang, chosenSource, pdfLang 
   const before = done.map(d => ({ r: d.r, content: structuredClone(d.r.content), rings: structuredClone(regionRings(d.r.geometry)) }));
   history.exec({
     label: 'translate from page text',
-    do() { for (const d of done) d.item = applyTranslation(d); touch(S.pmap); rerender(); },
+    do() { for (const d of done) d.item = applyTranslation(d); touch(appState.pmap); rerender(); },
     undo() { for (const b of before) { b.r.content = structuredClone(b.content); applyRings(b.r, b.rings); } rerender(); },
   });
 
@@ -5213,14 +5914,22 @@ async function translateRegions(sel, { scope = 'selection' } = {}) {
     return { translated: 0, failed: 0 };
   }
   if (!viewer.doc) { setStatus('Load a PDF first.'); return { cancelled: true }; }
-  if (!S.pmap || !S.project) { setStatus('Open a PDF first.'); return { cancelled: true }; }
+  if (!appState.pmap) { setStatus('Load a region map first.'); return { cancelled: true }; }
+  if (!appState.content && !(await ensureContentFile())) return { cancelled: true };
+  // Creating (or switching) a variant rebuilds the page's region objects, so the caller's
+  // references can be stale. Re-resolve them by id from the now-active map.
+  const ids = sel.map(r => r.id);
+  const fresh = () => ids.map(regionById).filter(Boolean);
+  sel = fresh();
+  if (!sel.length) { setStatus('The selected region(s) are no longer available.'); return { cancelled: true }; }
   if (settings.provider === 'none') {
     setStatus('No translation provider configured. Set one in Preferences…, or use “Copy underlying content as text”, translate it, then paste it back.');
     return { cancelled: true };
   }
-  const targetLang = String(els.fTargetLang.value || settings.targetLang || 'de').toLowerCase();
-  const chosenSource = sourceLangValue();
-  let pdfLang = S.pdfLanguage;
+  // Read the pair before any variant switch below: the active variant names the languages.
+  const targetLang = activeTargetLanguage();
+  const chosenSource = activeSourceLanguage();
+  let pdfLang = appState.pdfLanguage;
   let source = pdfLang ? sourceVariantFor(pdfLang) : null;
   // Translate's happy path keeps extraction invisible (spec 1.6 §4.1): establish the
   // PDF's own language and the source-text variant first, then translateFromVariant()
@@ -5236,9 +5945,12 @@ async function translateRegions(sel, { scope = 'selection' } = {}) {
   }
   if (!source) {
     if (!(await ensureExtractionVariant('Translation', { confirmSwitch: false }))) return { cancelled: true };
-    pdfLang = S.pdfLanguage;
+    pdfLang = appState.pdfLanguage;
     source = pdfLang ? sourceVariantFor(pdfLang) : null;
   }
+  // The source-variant guard may have switched the active variant above; resolve again.
+  sel = fresh();
+  if (!sel.length) { setStatus('The selected region(s) are no longer available.'); return { cancelled: true }; }
   if (source) return translateFromVariant(sel, { pdfLang, source, targetLang, chosenSource });
   return translateFromPageDirect(sel, { targetLang, chosenSource, pdfLang });
 }
@@ -5274,54 +5986,54 @@ async function detectMissingPages(pageNos) {
 }
 async function translatePageText() {
   if (!viewer.doc) { setStatus('Load a PDF first.'); return; }
-  if (!S.pmap || !S.project) { setStatus('Open a PDF first.'); return; }
+  if (!appState.content && !(await ensureContentFile())) return;
   if (settings.provider === 'none') {
     setStatus('No translation provider configured. Set one in Preferences…, or use “Copy underlying content as text”, translate it, then paste it back.');
     return;
   }
   let regions = currentRegions().filter(r => r && !isDetectedImage(r));
   if (!currentRegions().length) {
-    if (!(await detectMissingPages([S.page]))) return;
+    if (!(await detectMissingPages([appState.page]))) return;
     regions = currentRegions().filter(r => r && !isDetectedImage(r));
   }
-  if (!regions.length) { setStatus(`No text regions to translate on page ${S.page}.`); return; }
-  S.selected = new Set(regions.map(r => r.id));
-  S.itemIndex = 0; S.itemSelected = false; clearItemSelection();
+  if (!regions.length) { setStatus(`No text regions to translate on page ${appState.page}.`); return; }
+  appState.selected = new Set(regions.map(r => r.id));
+  appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
   return translateRegions(regions, { scope: 'page' });
 }
 async function translateDocumentText() {
   if (!viewer.doc) { setStatus('Load a PDF first.'); return; }
-  if (!S.pmap || !S.project) { setStatus('Open a PDF first.'); return; }
+  if (!appState.content && !(await ensureContentFile())) return;
   if (settings.provider === 'none') {
     setStatus('No translation provider configured. Set one in Preferences…, or use “Copy underlying content as text”, translate it, then paste it back.');
     return;
   }
-  const startPage = S.page;
-  const startSelection = [...S.selected];
+  const startPage = appState.page;
+  const startSelection = [...appState.selected];
   const empty = [];
   for (let p = 1; p <= viewer.pageCount; p++) {
-    if (!(getPage(S.pmap, p)?.regions || []).length) empty.push(p);
+    if (!(getPage(appState.pmap, p)?.regions || []).length) empty.push(p);
   }
   if (empty.length && !(await detectMissingPages(empty))) {
-    S.page = startPage; S.selected = new Set(startSelection); rerender(); refreshChrome();
+    appState.page = startPage; appState.selected = new Set(startSelection); rerender(); refreshChrome();
     return;
   }
   let pagesTouched = 0, translated = 0, failed = 0;
   let cancelled = false;
   for (let p = 1; p <= viewer.pageCount; p++) {
-    const regions = (getPage(S.pmap, p)?.regions || []).filter(r => r && !isDetectedImage(r));
+    const regions = (getPage(appState.pmap, p)?.regions || []).filter(r => r && !isDetectedImage(r));
     if (!regions.length) continue;
-    S.page = p;
-    S.selected = new Set(regions.map(r => r.id));
+    appState.page = p;
+    appState.selected = new Set(regions.map(r => r.id));
     const res = await translateRegions(regions, { scope: 'document' });
     if (res?.cancelled) { cancelled = true; break; }
     if (res?.translated) pagesTouched += 1;
     translated += res?.translated || 0;
     failed += res?.failed || 0;
   }
-  S.page = Math.min(Math.max(1, startPage), viewer.pageCount);
-  S.selected = new Set(startSelection.filter(id => !!regionById(id)));
-  S.itemIndex = 0; S.itemSelected = false; clearItemSelection();
+  appState.page = Math.min(Math.max(1, startPage), viewer.pageCount);
+  appState.selected = new Set(startSelection.filter(id => !!regionById(id)));
+  appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
   rerender(); refreshChrome();
   if (cancelled) {
     setStatus(`Document translation cancelled — ${translated} region(s) written.`);
@@ -5366,6 +6078,25 @@ function applyTranslation({ r, translation, ex, targetLang, replace }) {
 // language* (spec §22) — a normal variant, created/switched to through the same flow
 // as File ▸ New content variant… when the active one is some other language.
 
+// Escape HTML so user-visible filenames/labels can't inject markup into the sidebar.
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text || '';
+  return div.innerHTML;
+}
+
+// Human-readable file size for the sidebar Files panel.
+function fileSizeLabel(bytes) {
+  if (!bytes && bytes !== 0) return '—';
+  const b = Number(bytes);
+  if (b < 1024) return `${b} B`;
+  const kb = b / 1024;
+  if (kb < 1024) return `${Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${Math.round(mb * 10) / 10} MB`;
+  return `${Math.round(mb / 1024 * 10) / 10} GB`;
+}
+
 function languageName(code) {
   const hit = LANGUAGES.find(([c]) => c.toLowerCase() === String(code || '').toLowerCase());
   return hit ? hit[1] : String(code || '');
@@ -5377,7 +6108,7 @@ function languageName(code) {
 function pdfLanguageGuess() {
   const src = sourceLangValue();
   if (src && src !== 'auto') return src;
-  return S.project?.content?.language || 'en';
+  return appState.content?.sourceLanguage || 'en';
 }
 
 // What to pre-fill the one-time PDF-language question with (spec 1.6 §7.2): the PDF's
@@ -5394,7 +6125,7 @@ async function initialPdfLanguageGuess() {
 // OCR language: the PDF's own language when known, otherwise the same best guess the
 // language prompt uses. `auto` is not an OCR language; English is the safe fallback.
 function ocrLanguage(explicit) {
-  const code = String(explicit || S.pdfLanguage || pdfLanguageGuess() || 'en').toLowerCase();
+  const code = String(explicit || appState.pdfLanguage || pdfLanguageGuess() || 'en').toLowerCase();
   return code === 'auto' ? 'en' : code;
 }
 
@@ -5412,59 +6143,55 @@ function languageCodeValid(code) {
 
 // Prefill + focus the region toolbar's Source dropdown and wait for a pick (Esc or a
 // click anywhere else cancels). Only callable when the dropdown is actually on screen.
-function pickSourceLanguageInline(guess, what) {
-  const sel = els.fSourceLang;
-  if (!sel || sel.offsetParent === null) return null;
-  const options = [...sel.options];
-  const pre = String(guess || '').toLowerCase();
-  if (pre && options.some(o => o.value.toLowerCase() === pre)) sel.value = pre;
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = (val) => {
-      if (done) return;
-      done = true;
-      sel.removeEventListener('change', onChange);
-      sel.removeEventListener('keydown', onKey);
-      window.removeEventListener('pointerdown', onDown, true);
-      resolve(val);
-    };
-    const onChange = () => finish(sel.value && sel.value !== 'auto' ? sel.value : null);
-    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); } };
-    const onDown = (e) => { if (!sel.contains(e.target) && !(sel.closest('label')?.contains(e.target))) finish(null); };
-    const label = languageName(sel.value || pre || guess);
-    setStatus(`${what} needs this PDF's language — the Source dropdown is prefilled as ${label || '(unknown)'}; pick the language, or press Esc to cancel.`);
-    sel.addEventListener('change', onChange);
-    sel.addEventListener('keydown', onKey);
-    window.addEventListener('pointerdown', onDown, true);
-    sel.focus();
-  });
-}
-
 async function ensurePdfLanguage(what = 'Extraction', { preferToolbar = false } = {}) {
-  if (S.pdfLanguage) return S.pdfLanguage;
+  if (appState.pdfLanguage) return appState.pdfLanguage;
+
+  // Accept what the user already has in the Source dropdown, unless it is Auto-detect.
+  const sel = els.fSourceLang;
+  if (sel && sel.offsetParent !== null) {
+    const code = String(sel.value || '').trim().toLowerCase();
+    if (code && code !== 'auto' && languageCodeValid(code)) {
+      appState.pdfLanguage = code;
+      settings.sourceLang = code;
+      saveSettings(); saveDocPrefs();
+      return code;
+    }
+    // Auto-detect: run detection, then ask the user to confirm before using it.
+    if (code === 'auto') {
+      const detected = await initialPdfLanguageGuess();
+      if (detected && languageCodeValid(detected)) {
+        const confirmed = await confirmDialog({
+          title: 'Detected language',
+          text: `${what} detected ${languageName(detected)} (${detected}) for this PDF. Use it as the source language?`,
+          confirmLabel: `Use ${languageName(detected)}`,
+          cancelLabel: 'Choose another…',
+        });
+        if (confirmed) {
+          appState.pdfLanguage = detected;
+          settings.sourceLang = detected;
+          saveSettings(); saveDocPrefs();
+          return detected;
+        }
+        // User declined the detection: fall through to the manual picker below.
+      }
+    }
+  }
+
+  // The preferToolbar shortcut (Improve lens): its toolbar language dropdown
+  // doubles as the source language.
   if (preferToolbar) {
     const code = String(els.fTargetLang?.value || settings.selectableLang || '').trim().toLowerCase();
-    if (code && code !== 'auto') {
-      S.pdfLanguage = code;
+    if (code && code !== 'auto' && languageCodeValid(code)) {
+      appState.pdfLanguage = code;
       settings.selectableLang = code;
       saveSettings(); saveDocPrefs();
       return code;
     }
   }
+
+  // Fallback: full dialog picker when the dropdown is not on screen or the user
+  // declined the detected language.
   const guess = await initialPdfLanguageGuess();
-  // Translate keeps its Source dropdown in sync with the answer either way, so the
-  // pick is stored once and reused by translation, OCR and the export workflows.
-  const viaToolbar = pickSourceLanguageInline(guess, what);
-  if (viaToolbar) {
-    const code = await viaToolbar;
-    if (!code) { setStatus(`${what} cancelled — no language given for this PDF.`); return null; }
-    if (!languageCodeValid(code)) { setStatus(`${what} cancelled — “${code}” is not a language code like “fr”.`); return null; }
-    S.pdfLanguage = code;
-    saveDocPrefs();
-    return code;
-  }
-  // The region toolbar is not on screen (no region selected / not an editing mode):
-  // the same dropdown is offered in a dialog.
   const options = LANGUAGES.map(([code, name]) => ({ value: code, label: `${name} (${code})` }));
   const pre = String(guess || '').toLowerCase();
   const answer = await promptSelect({
@@ -5478,7 +6205,7 @@ async function ensurePdfLanguage(what = 'Extraction', { preferToolbar = false } 
   if (answer === null) { setStatus(`${what} cancelled — no language given for this PDF.`); return null; }
   const code = String(answer).trim().toLowerCase();
   if (!languageCodeValid(code)) { setStatus(`${what} cancelled — “${code}” is not a language code like “fr”.`); return null; }
-  S.pdfLanguage = code;
+  appState.pdfLanguage = code;
   saveDocPrefs();
   return code;
 }
@@ -5542,15 +6269,15 @@ function applyExtractionToEntry(entry, r, ex, replace) {
 // variant flow otherwise (spec §22). Returns the language code, or null if declined.
 async function ensureExtractionVariant(what = 'Extraction', { confirmSwitch = true } = {}) {
   if (!viewer.doc) { setStatus('Load a PDF first.'); return null; }
-  if (!S.pmap || !S.project) { setStatus('Open a PDF first.'); return null; }
-  const pdfLang = await ensurePdfLanguage(what, { preferToolbar: S.lens === 'improve' });
+  if (!appState.content && !(await ensureContentFile())) return null;
+  const pdfLang = await ensurePdfLanguage(what, { preferToolbar: contentIsImprove() });
   if (!pdfLang) return null;
-  if (String(S.project.content.language || '').toLowerCase() !== pdfLang) {
+  if (!isSourceTextVariant(appState.content, pdfLang)) {
     // Re-running extraction updates the same PDF-language variant, even after the user
     // switched to a target: never create a second empty one (§22).
-    const remembered = findRememberedVariant(pdfLang);
+    const remembered = findRememberedSourceVariant(pdfLang);
     const decline = () => {
-      setStatus(`${what} cancelled — the active variant is ${S.project.content.language}, not the PDF's ${pdfLang}.`);
+      setStatus(`${what} cancelled — the active variant is ${appState.content.sourceLanguage} → ${appState.content.destinationLanguage}, not the PDF's ${pdfLang}.`);
       return null;
     };
     if (remembered) {
@@ -5558,7 +6285,7 @@ async function ensureExtractionVariant(what = 'Extraction', { confirmSwitch = tr
       // invisibly, leaving only the ordinary unsaved-changes guard inside the switch.
       if (confirmSwitch && !(await confirmDialog({
         title: `Extract into “${remembered.meta.name}”?`,
-        text: `This PDF is written in ${languageName(pdfLang)} (${pdfLang}), and its variant “${remembered.meta.name}” is still loaded from this session — but the active variant is “${S.project.content.name}” (${S.project.content.language}). Switch back to the ${pdfLang} variant and extract there? Your current edits stay in memory and are untouched by the switch.`,
+        text: `This PDF is written in ${languageName(pdfLang)} (${pdfLang}), and its variant “${remembered.meta.name}” is still loaded from this session — but the active variant is “${appState.content.name}” (${appState.content.sourceLanguage}). Switch back to the ${pdfLang} variant and extract there? Your current edits stay in memory and are untouched by the switch.`,
         confirmLabel: `Switch to “${remembered.meta.name}”`,
         cancelLabel: 'Cancel',
       }))) return decline();
@@ -5566,12 +6293,12 @@ async function ensureExtractionVariant(what = 'Extraction', { confirmSwitch = tr
     } else {
       if (confirmSwitch && !(await confirmDialog({
         title: `Create the ${pdfLang} variant?`,
-        text: `This PDF is written in ${languageName(pdfLang)} (${pdfLang}), but the active content variant is “${S.project.content.name}” (${S.project.content.language}). The extracted source text must live in a ${pdfLang} variant — a new, empty one will be created and opened. Your current variant stays in memory and is untouched.`,
+        text: `This PDF is written in ${languageName(pdfLang)} (${pdfLang}), but the active content variant is “${appState.content.name}” (${appState.content.sourceLanguage}). The extracted source text must live in a ${pdfLang} variant — a new, empty one will be created and opened. Your current variant stays in memory and is untouched.`,
         confirmLabel: `Create ${pdfLang} variant`,
         cancelLabel: 'Cancel',
       }))) return decline();
-      await createContentVariant(pdfLang, languageName(pdfLang), false);
-      if (!S.project || String(S.project.content.language || '').toLowerCase() !== pdfLang) return null;
+      await createContentVariant(pdfLang, pdfLang, languageName(pdfLang));
+      if (!isSourceTextVariant(appState.content, pdfLang)) return null;
     }
   }
   return pdfLang;
@@ -5643,28 +6370,28 @@ async function harvestRegion(page, viewport, r, promptReplace, run, opts = {}) {
 // classification is part of the same step (spec §20): it is runtime-only state, so undo
 // puts the previous classification back.
 function finishExtraction({ done, skipped, failed, awaiting = [], label, action = 'Extracted' }) {
-  const beforeAwaiting = new Set(S.awaitingOcr);
+  const beforeAwaiting = new Set(appState.awaitingOcr);
   if (done.length || awaiting.length) {
     const before = done.map(d => ({ r: d.r, content: structuredClone(d.r.content), rings: structuredClone(regionRings(d.r.geometry)) }));
     history.exec({
       label,
       do() {
         for (const d of done) applyExtraction(d);
-        S.awaitingOcr = new Set(beforeAwaiting);
-        for (const id of awaiting) S.awaitingOcr.add(id);
-        for (const d of done) S.awaitingOcr.delete(d.r.id);
-        touch(S.pmap); rerender();
+        appState.awaitingOcr = new Set(beforeAwaiting);
+        for (const id of awaiting) appState.awaitingOcr.add(id);
+        for (const d of done) appState.awaitingOcr.delete(d.r.id);
+        touch(appState.pmap); rerender();
       },
       undo() {
         for (const b of before) { b.r.content = structuredClone(b.content); applyRings(b.r, b.rings); }
-        S.awaitingOcr = new Set(beforeAwaiting);
+        appState.awaitingOcr = new Set(beforeAwaiting);
         rerender();
       },
     });
   }
-  const c = lensCopy();
+  const c = workflowCopy();
   let msg = done.length
-    ? `${action} ${done.length} region(s) into ${S.project.content.name} (${S.project.content.language})`
+    ? `${action} ${done.length} region(s) into ${appState.content.name} (${langLabel(appState.content)})`
     : `Nothing extracted into ${c.sourceVariant.toLowerCase()}`;
   if (awaiting.length) msg += ` — ${awaiting.length} ${c.missing}`;
   if (skipped.length) msg += ` — ${skipped.length} skipped (already has content)`;
@@ -5677,17 +6404,17 @@ function finishExtraction({ done, skipped, failed, awaiting = [], label, action 
 async function extractSelectedContent() {
   const ids = selectedRegions().map(r => r.id);
   if (!ids.length) { setStatus('Select region(s) first.'); return; }
-  if (!(await ensureExtractionVariant(lensCopy().actionLabel))) return;
+  if (!(await ensureExtractionVariant(workflowCopy().actionLabel))) return;
   // The variant guard can switch to the PDF-language variant; that rebuilds the page's
   // region objects, so re-resolve the ids instead of writing into the old variant's copies.
   const sel = ids.map(regionById).filter(Boolean);
   if (!sel.length) { setStatus('The selected regions are no longer available.'); return; }
-  S.selected = new Set(sel.map(r => r.id));
+  appState.selected = new Set(sel.map(r => r.id));
   let page;
-  try { page = await viewer.doc.getPage(S.page); }
+  try { page = await viewer.doc.getPage(appState.page); }
   catch (e) { setStatus(`Could not read the page: ${e.message}`); return { cancelled: true }; }
   const viewport = page.getViewport({ scale: 1 });
-  setStatus(`Reading ${sel.length} region(s) into ${S.project.content.name}…`);
+  setStatus(`Reading ${sel.length} region(s) into ${appState.content.name}…`);
   const done = [], skipped = [], failed = [], awaiting = [];
   const run = makeRunChoice();
   try {
@@ -5698,7 +6425,7 @@ async function extractSelectedContent() {
       done.push({ r, ex: h.ex, replace: h.replace });
     }
   } finally { page.cleanup?.(); }
-  finishExtraction({ done, skipped, failed, awaiting: awaiting.map(a => a.id), label: 'extract content', action: lensCopy().actionPast });
+  finishExtraction({ done, skipped, failed, awaiting: awaiting.map(a => a.id), label: 'extract content', action: workflowCopy().actionPast });
 }
 
 // OCR only the supplied regions that are marked awaiting OCR. This is deliberately
@@ -5706,27 +6433,27 @@ async function extractSelectedContent() {
 // digital layer, and writes into the PDF-language ("digital") variant through the same
 // extraction variant guard and undo step as every other harvest.
 async function ocrRegions(regions) {
-  const ids = (regions || []).filter(r => r && S.awaitingOcr.has(r.id) && !isDetectedImage(r)).map(r => r.id);
-  if (!ids.length) { setStatus(`Select region(s) marked ${lensCopy().missing} first.`); return; }
+  const ids = (regions || []).filter(r => r && appState.awaitingOcr.has(r.id) && !isDetectedImage(r)).map(r => r.id);
+  if (!ids.length) { setStatus(`Select region(s) marked ${workflowCopy().missing} first.`); return; }
   if (!ocrEnabled()) { setStatus('OCR is off — enable it in Preferences… ▸ OCR Service.'); return; }
-  if (!(await ensureExtractionVariant(lensCopy().actionLabel))) return;
+  if (!(await ensureExtractionVariant(workflowCopy().actionLabel))) return;
   // The guard may have switched to the PDF-language variant, which rebuilds the region
   // objects; resolve the ids again so OCR writes into the active source variant, not a
   // stale copy from the variant the user right-clicked in.
-  const sel = ids.map(regionById).filter(r => r && S.awaitingOcr.has(r.id) && !isDetectedImage(r));
-  if (!sel.length) { setStatus(`Those regions are no longer ${lensCopy().missing}.`); return; }
-  S.selected = new Set(sel.map(r => r.id));
+  const sel = ids.map(regionById).filter(r => r && appState.awaitingOcr.has(r.id) && !isDetectedImage(r));
+  if (!sel.length) { setStatus(`Those regions are no longer ${workflowCopy().missing}.`); return; }
+  appState.selected = new Set(sel.map(r => r.id));
   let page;
-  try { page = await viewer.doc.getPage(S.page); }
+  try { page = await viewer.doc.getPage(appState.page); }
   catch (e) { setStatus(`Could not read the page: ${e.message}`); return { cancelled: true }; }
   const viewport = page.getViewport({ scale: 1 });
-  setStatus(`Reading ${sel.length} region${sel.length === 1 ? '' : 's'} with OCR into ${S.project.content.name}…`);
+  setStatus(`Reading ${sel.length} region${sel.length === 1 ? '' : 's'} with OCR into ${appState.content.name}…`);
   const done = [], failed = [], awaiting = [];
   const run = makeRunChoice();
   try {
     for (const r of sel) {
       const h = await harvestRegion(page, viewport, r, true, run, { forceOcr: true });
-      if (h.cancelled) { setStatus(`${lensCopy().actionLabel} cancelled — nothing was written.`); return; }
+      if (h.cancelled) { setStatus(`${workflowCopy().actionLabel} cancelled — nothing was written.`); return; }
       if (h.error) { (regionNeedsOcr(r, h.reason) ? awaiting : failed).push({ id: r.id, msg: h.error }); continue; }
       done.push({ r, ex: h.ex, replace: h.replace });
     }
@@ -5738,14 +6465,14 @@ async function ocrRegions(regions) {
 // overwrite without a per-region choice, and a page run makes no such choice).
 async function extractPageContent() {
   if (!currentRegions().length) { setStatus('This page has no regions to extract into.'); return; }
-  if (!(await ensureExtractionVariant(lensCopy().actionLabel))) return;
+  if (!(await ensureExtractionVariant(workflowCopy().actionLabel))) return;
   // Re-read after the guard: it may have switched variants and rebuilt these objects.
   const regions = currentRegions();
   let page;
-  try { page = await viewer.doc.getPage(S.page); }
+  try { page = await viewer.doc.getPage(appState.page); }
   catch (e) { setStatus(`Could not read the page: ${e.message}`); return { cancelled: true }; }
   const viewport = page.getViewport({ scale: 1 });
-  setStatus(`Reading page ${S.page} into ${S.project.content.name}…`);
+  setStatus(`Reading page ${appState.page} into ${appState.content.name}…`);
   const done = [], skipped = [], failed = [], awaiting = [];
   try {
     for (const r of regions) {
@@ -5757,17 +6484,17 @@ async function extractPageContent() {
       done.push({ r, ex: h.ex, replace: false });
     }
   } finally { page.cleanup?.(); }
-  finishExtraction({ done, skipped, failed, awaiting: awaiting.map(a => a.id), label: 'extract content on page', action: lensCopy().actionPast });
+  finishExtraction({ done, skipped, failed, awaiting: awaiting.map(a => a.id), label: 'extract content on page', action: workflowCopy().actionPast });
 }
 
 // The document-wide run: a loop over pages with progress in the status bar, empty
 // regions only, and one undo step for the whole run (spec §20/§21).
 async function extractAllPagesContent() {
-  if (!(await ensureExtractionVariant(lensCopy().actionLabel))) return;
-  setStatus(`Reading all pages into ${S.project.content.name}…`);
+  if (!(await ensureExtractionVariant(workflowCopy().actionLabel))) return;
+  setStatus(`Reading all pages into ${appState.content.name}…`);
   const done = [], skipped = [], failed = [], awaiting = [];
   for (let p = 1; p <= viewer.pageCount; p++) {
-    const regions = S.pmap.pages.find(pg => pg.page === p)?.regions || [];
+    const regions = appState.pmap.pages.find(pg => pg.page === p)?.regions || [];
     if (!regions.some(r => !regionHasContent(r))) { skipped.push(...regions.map(r => r.id)); continue; }
     let page;
     try { page = await viewer.doc.getPage(p); }
@@ -5783,7 +6510,7 @@ async function extractAllPagesContent() {
       }
     } finally { page.cleanup?.(); }
   }
-  finishExtraction({ done, skipped, failed, awaiting: awaiting.map(a => a.id), label: 'extract content on all pages', action: lensCopy().actionPast });
+  finishExtraction({ done, skipped, failed, awaiting: awaiting.map(a => a.id), label: 'extract content on all pages', action: workflowCopy().actionPast });
 }
 
 // Improve's page/document entry points. A page that has never been detected gets geometry
@@ -5791,36 +6518,35 @@ async function extractAllPagesContent() {
 // guard writes the PDF's text into the PDF-language/selectable-text variant.
 async function makeSelectablePage() {
   if (!viewer.doc) { setStatus('Load a PDF first.'); return; }
-  if (!S.pmap || !S.project) { setStatus('Open a PDF first.'); return; }
+  if (!appState.content && !(await ensureContentFile())) return;
   if (!(await ensureExtractionVariant('Make this selectable'))) return;
   let regions = currentRegions();
   if (!regions.length) {
-    if (!(await detectMissingPages([S.page]))) return;
+    if (!(await detectMissingPages([appState.page]))) return;
     regions = currentRegions();
-    if (!regions.length) { setStatus(`Detection found no regions to make selectable on page ${S.page}.`); return; }
+    if (!regions.length) { setStatus(`Detection found no regions to make selectable on page ${appState.page}.`); return; }
   }
   return extractPageContent();
 }
 async function makeSelectableAllPages() {
   if (!viewer.doc) { setStatus('Load a PDF first.'); return; }
-  if (!S.pmap || !S.project) { setStatus('Open a PDF first.'); return; }
+  if (!appState.content && !(await ensureContentFile())) return;
   if (!(await ensureExtractionVariant('Make this selectable'))) return;
   const empty = [];
   for (let p = 1; p <= viewer.pageCount; p++) {
-    if (!(getPage(S.pmap, p)?.regions || []).length) empty.push(p);
+    if (!(getPage(appState.pmap, p)?.regions || []).length) empty.push(p);
   }
   if (empty.length && !(await detectMissingPages(empty))) return;
   return extractAllPagesContent();
 }
 
-// Preferences tabs. Kept in the session only. Each intent has a default section —
-// Translate opens Translation Service, Improve opens OCR Service — and remembering the
-// last tab per intent keeps a detour into Region Detection from changing the other lens.
-const activePrefTabByLens = { translate: 'translation', improve: 'ocr' };
+// Preferences tabs. Kept in the session only. The active variant's workflow decides the
+// default section — Translate opens Translation Service, Improve opens OCR Service — and
+// remembering the last tab per workflow keeps a detour into Region Detection from changing
+// the other workflow.
 function showPrefTab(name) {
   const tabs = [...document.querySelectorAll('[data-pref-tab]')];
-  if (!tabs.some(t => t.dataset.prefTab === name)) name = activePrefTabByLens[S.lens] || LENS_COPY[S.lens]?.prefsTab || 'translation';
-  activePrefTabByLens[S.lens] = name;
+  if (!tabs.some(t => t.dataset.prefTab === name)) name = workflowCopy().prefsTab;
   for (const tab of tabs) {
     const on = tab.dataset.prefTab === name;
     tab.classList.toggle('active', on);
@@ -5833,7 +6559,7 @@ function showPrefTab(name) {
 function openSettings() {
   fillSettingsFields();
   refreshSettingsRows();
-  showPrefTab(activePrefTabByLens[S.lens] || lensCopy().prefsTab);
+  showPrefTab(workflowCopy().prefsTab);
   $('settings-modal').hidden = false;
 }
 // Fill the dialog's controls from the settings. Also called once at startup, so a
@@ -5849,7 +6575,6 @@ function fillSettingsFields() {
   $('set-detect-tier').value = detectTier();
   $('set-cv-engine').value = cvEngine();
   $('set-ocr-engine').value = ocrEngine();
-  $('set-default-lens').value = settings.defaultLens || 'translate';
 }
 // The URL row is shown for every LibreTranslate server and is always editable: the
 // instance's own address is just the default value, so a preset can be repointed at
@@ -5915,10 +6640,7 @@ function closeSettings() {
   settings.detectTier = clampDetectTier($('set-detect-tier').value);
   settings.cvEngine = clampCvEngine($('set-cv-engine').value);
   settings.ocrEngine = clampOcrEngine($('set-ocr-engine').value);
-  settings.defaultLens = LENS_COPY[$('set-default-lens').value] ? $('set-default-lens').value : 'translate';
   saveSettings();
-  els.fTargetLang.value = settings.targetLang;
-  els.fSourceLang.value = settings.sourceLang;
   $('settings-modal').hidden = true;
   setStatus(`Translation provider: ${translationProviders[settings.provider]?.label || settings.provider}.`);
 }
@@ -5951,7 +6673,7 @@ function openAbout() {
 // a search covers every page whose text is currently loaded. Transitional flows (paragraph,
 // list item, table cell) are separate search units; a match never crosses one.
 function activeFindEntries() {
-  return (S.pmap?.pages || []).flatMap(pg => (pg.regions || []).map(r => ({
+  return (appState.pmap?.pages || []).flatMap(pg => (pg.regions || []).map(r => ({
     id: r.id,
     page: pg.page,
     region: r,
@@ -5969,23 +6691,23 @@ function variantFindEntries(content) {
   })).filter(e => (e.get()?.items || []).some(it => it.type === 'text'));
 }
 function findReplaceTarget() {
-  if (!S.pmap || !S.project) return null;
-  if (S.lens === 'improve') {
+  if (!appState.pmap || !appState.content) return null;
+  if (contentIsImprove()) {
     const source = digitalSourceState();
     if (source.active) {
-      return { entries: activeFindEntries(), label: `Selectable text · ${S.project.content.name} (${S.project.content.language}) · all pages` };
+      return { entries: activeFindEntries(), label: `Selectable text · ${appState.content.name} (${langLabel(appState.content)}) · all pages` };
     }
     if (source.content) {
-      return { entries: variantFindEntries(source.content), label: `Selectable text · ${source.content.meta?.name || 'source variant'} (${source.content.meta?.language || '?'}) · all pages` };
+      return { entries: variantFindEntries(source.content), label: `Selectable text · ${source.content.meta?.name || 'source variant'} (${langLabel(source.content)}) · all pages` };
     }
     // No PDF-language variant has been identified yet. Improve is working in the only
     // loaded variant; searching it is more useful than refusing, and the label says so.
-    if (!S.pdfLanguage) {
-      return { entries: activeFindEntries(), label: `Current content · ${S.project.content.name} (${S.project.content.language}) · all pages` };
+    if (!appState.pdfLanguage) {
+      return { entries: activeFindEntries(), label: `Current content · ${appState.content.name} (${langLabel(appState.content)}) · all pages` };
     }
     return null;
   }
-  return { entries: activeFindEntries(), label: `Translate content · ${S.project.content.name} (${S.project.content.language}) · all pages` };
+  return { entries: activeFindEntries(), label: `Translate content · ${appState.content.name} (${langLabel(appState.content)}) · all pages` };
 }
 function findOptions() {
   return { regex: !!els.findRegex?.checked, matchCase: !!els.findCase?.checked };
@@ -6081,7 +6803,7 @@ function replaceAllFound() {
   };
   history.exec({
     label: 'find and replace',
-    do() { commit('after'); touch(S.pmap); refreshChrome(); },
+    do() { commit('after'); touch(appState.pmap); refreshChrome(); },
     undo() { commit('before'); refreshChrome(); },
   });
   const noun = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -6125,162 +6847,23 @@ els.svg.addEventListener('contextmenu', (e) => {
   const poly = t.closest?.('polygon.region');
   if (poly?.dataset.id) showRegionContextMenu(e, poly.dataset.id);
 });
-
-// ================= menu bar =================
-function pageNavItems() {
-  if (!viewer.doc) return [{ type: 'header', label: 'Pages' }, { label: 'No PDF loaded', enabled: () => false, run: () => {} }, { type: 'sep' }];
-  return [
-    { type: 'header', label: `Page ${S.page} / ${viewer.pageCount}` },
-    { label: 'Previous page', enabled: () => S.page > 1, run: () => gotoPage(S.page - 1) },
-    { label: 'Next page', enabled: () => S.page < viewer.pageCount, run: () => gotoPage(S.page + 1) },
-    { label: 'Go to page…', run: gotoPagePrompt },
-    { label: 'First page', enabled: () => S.page > 1, run: () => gotoPage(1) },
-    { label: 'Last page', enabled: () => S.page < viewer.pageCount, run: () => gotoPage(viewer.pageCount) },
-    { type: 'sep' },
-  ];
-}
-
-function fileMenuItems(lens) {
-  const exportItem = lens === 'improve'
-    ? { label: 'Export digitalized PDF…', enabled: () => !!S.pdfBytes && !!S.pmap, run: doExportDigital }
-    : { label: 'Export reconstructed PDF', enabled: () => !!S.pmap, run: doExport };
-  return [
-    { label: 'Open PDF…', shortcut: 'Ctrl/Cmd+O', run: () => els.filePdf.click() },
-    { label: 'Open map or content…', run: () => els.filePmap.click() },
-    { label: 'Close PDF', enabled: () => !!viewer.doc, run: closePdf },
-    { type: 'sep' },
-    { label: 'Export project', shortcut: 'Ctrl/Cmd+S', enabled: () => !!S.pmap, run: () => saveProjectPart('both') },
-    { label: 'Export map', enabled: () => !!S.pmap, run: () => saveProjectPart('map') },
-    { label: 'Export translated content', enabled: () => !!S.pmap, run: () => exportContentSlot('translate') },
-    { label: 'Export improved content', enabled: () => !!S.pmap, run: () => exportContentSlot('improve') },
-    exportItem,
-    { type: 'sep' },
-    { label: 'New content variant…', enabled: () => !!S.pmap, run: promptNewContentVariant },
-    { label: 'Switch content variant…', enabled: () => !!S.pmap && S.variants.some(v => v.content.mapId === S.project?.mapId), run: promptSwitchContentVariant },
-    { type: 'sep' },
-    { label: 'Preferences…', run: openSettings },
-  ];
-}
-function toolsMenuItems() {
-  return [
-    { label: 'Undo', shortcut: 'Ctrl/Cmd+Z', enabled: () => history.canUndo, run: () => history.undo() },
-    { label: 'Redo', shortcut: 'Ctrl/Cmd+Shift+Z', enabled: () => history.canRedo, run: () => history.redo() },
-    { type: 'sep' },
-    { label: 'Find & replace…', shortcut: 'Ctrl/Cmd+F', enabled: () => !!S.pmap && !!S.project, run: openFindReplace },
-    { label: 'Select all', shortcut: 'Ctrl/Cmd+A', enabled: () => isEditMode() && !!S.pmap, run: selectAll },
-    { label: 'Add polygon', shortcut: 'P', checked: () => S.tool === 'polygon', enabled: () => inRegion(), run: armPolygon },
-    { label: 'Lock / unlock region', shortcut: 'L', enabled: () => isEditMode() && S.selected.size > 0, run: toggleLockSelected },
-    { label: 'Merge selected', enabled: () => inRegion() && S.selected.size >= 2, run: mergeSelected },
-    { type: 'sep' },
-    { label: 'Resize to text in page', shortcut: 'R', enabled: () => inContent() && pageTextItemCount() > 0, run: resizeAllTextInPage },
-    { label: 'Delete region(s)', shortcut: 'Del', enabled: () => inRegion() && S.selected.size > 0, run: deleteSelection },
-    { label: 'Split selected region…', enabled: () => inRegion() && S.selected.size === 1, run: startSplit },
-    { type: 'sep' },
-    { label: 'Detect regions on this page', shortcut: 'D', enabled: () => !!viewer.doc, run: detectRegionsOnPage },
-    { label: 'Detect regions on all pages', enabled: () => !!viewer.doc, run: detectRegionsAllPages },
-    { label: 'Extract content after detecting', checked: () => detectExtract(), run: toggleDetectExtract },
-  ];
-}
-function translateMenuItems() {
-  return [
-    { label: 'Translate this page', enabled: () => !!viewer.doc && !!S.pmap, run: translatePageText },
-    { label: 'Translate selected region(s)', enabled: () => !!viewer.doc && S.selected.size > 0, run: translateFromPageText },
-    { label: 'Translate document', enabled: () => !!viewer.doc && !!S.pmap, run: translateDocumentText },
-  ];
-}
-function improveMenuItems() {
-  const c = lensCopy();
-  return [
-    { label: c.pageAction, enabled: () => !!viewer.doc && !!S.pmap, run: makeSelectablePage },
-    { label: c.allAction, enabled: () => !!viewer.doc && !!S.pmap, run: makeSelectableAllPages },
-    { label: c.selectedAction, enabled: () => !!viewer.doc && S.selected.size > 0, run: extractSelectedContent },
-    { type: 'sep' },
-    { label: c.showStatus, shortcut: 'Shift+D', checked: () => S.showDigital, enabled: () => !!viewer.doc, run: toggleDigitalVersion },
-    { label: c.selectMissing, shortcut: 'Shift+A', enabled: () => !!viewer.doc && !!S.pmap && isEditMode(), run: selectTextRegionsWithoutContent },
-  ];
-}
-function viewMenuItems() {
-  return [
-    { label: 'Region mode', shortcut: 'Tab', checked: () => S.mode === 'region', run: () => setMode('region') },
-    { label: 'Content mode', checked: () => S.mode === 'content', run: () => setMode('content') },
-    { label: 'Preview mode', checked: () => S.mode === 'view', run: () => setMode('view') },
-    { label: 'Original mode', checked: () => S.mode === 'text', run: () => setMode('text') },
-    { type: 'sep' },
-    { label: 'Show overlay', shortcut: '0', checked: () => S.overlayVisible, run: toggleOverlay },
-    { type: 'sep' },
-    ...pageNavItems(),
-    { label: 'Zoom in', run: () => setZoom(S.zoom * 1.2) },
-    { label: 'Zoom out', run: () => setZoom(S.zoom / 1.2) },
-    { label: 'Fit width', run: fitZoom },
-  ];
-}
-function helpMenuItems() {
-  return [
-    { label: 'Shortcuts & workflow', run: () => openHelp() },
-    { label: 'About PDFBandit', run: () => openAbout() },
-  ];
-}
-function menusForLens(lens) {
-  const common = [
-    { label: 'File', items: () => fileMenuItems(lens) },
-    { label: 'Tools', items: toolsMenuItems },
-    { label: 'View', items: viewMenuItems },
-    { label: 'Help', items: helpMenuItems },
-  ];
-  return lens === 'improve'
-    ? [
-        common[0],
-        { label: 'Improve', items: improveMenuItems },
-        ...common.slice(1),
-      ]
-    : [
-        common[0],
-        { label: 'Translate', items: translateMenuItems },
-        ...common.slice(1),
-      ];
-}
-const menubar = createMenubar(els.menubar, () => menusForLens(S.lens));
-// Paint the initial lens chrome (active header button, body class, empty review section)
-// before a document arrives, so the empty app already says which workflow is active.
-applyLensChrome();
+const menubar = createMenubar(els.menubar, mainMenuItems);
 
 
 async function closePdf() {
   if (!viewer.doc) return;
-  let dirty = !!(S.dirtySides?.map || S.dirtySides?.content);
-  if (S.pmap && S.project) {
-    try {
-      const { changed } = await projectTexts();
-      dirty = !!(changed.map || changed.content);
-    } catch { /* if the check fails, keep the last known dirty state */ }
-  }
-  if (dirty) {
-    // The close question is a real decision, not a roadblock: save the project first,
-    // discard, or stop. "Save & close" writes both files exactly as Ctrl/Cmd+S does; a
-    // failed save keeps the document open, so nothing is lost silently.
-    const what = await appDialog({
-      title: 'Export before closing?',
-      text: `${S.pdfName || 'This PDF'} has unsaved map or content changes. Closing discards them unless the project is exported first.`,
-      buttons: [
-        { value: 'save', label: 'Export & close', primary: true },
-        { value: 'discard', label: 'Discard changes' },
-      ],
-      cancelLabel: 'Cancel',
-    });
-    if (!what || what === 'cancel') { setStatus('Close cancelled — the PDF stays open.'); return; }
-    if (what === 'save') {
-      await saveProjectPart('both');
-      // Compare against the just-saved state again: if the save failed (or anything
-      // changed underneath), stay open rather than close with a "saved" status.
-      try {
-        const { changed } = await projectTexts();
-        if (changed.map || changed.content) return;
-      } catch { return; }
-    }
-  }
+  // One combined prompt when both map and content are dirty: export both or discard both.
+  if (!(await confirmUnloadProject())) { setStatus('Close cancelled — unsaved changes.'); return; }
 
-  const name = S.pdfName || 'PDF';
-  const sha = S.sha256;
+  // Null out the document state before clearing the session, so a concurrent
+  // saveProjectNow() that resumes after closePdf() started cannot rewrite the
+  // IndexedDB session that clearSavedSession() is about to delete.
+  appState.pmap = null; appState.content = null; appState.variants = [];
+  appState.savedMap = null; appState.mapModified = '';
+  appState.dirtySides = { map: false, content: false };
+
+  const name = appState.pdfName || 'PDF';
+  const sha = appState.sha256;
   docGen++;
   sessionGen++;
   await clearSavedSession();
@@ -6290,23 +6873,18 @@ async function closePdf() {
   try { await viewer.close(); } catch {}
 
   // Drop every piece of state that belongs to the closed document. The empty app keeps
-  // only global preferences; this PDF's lens/language entry is cleared above.
-  S.pdfBytes = null; S.pdfName = ''; S.sha256 = ''; S.pdfLanguage = null;
-  S.pmap = null; S.project = null; S.variants = [];
-  S.dirtySides = { map: false, content: false };
-  S.lensVariant = { translate: null, improve: null };
-  S.suppressLensVariantRemember = false;
-  S.lens = 'translate';
-  S.activeSlot = 'translate';
-  S.page = 1; S.zoom = 1.2;
-  S.selected.clear(); clearItemSelection(); S.awaitingOcr.clear();
-  S.itemIndex = 0; S.itemSelected = false; S.selectedVertex = null;
-  S.draft = []; S.splitPts = []; S.cursor = null;
-  S.marquee = null; S.marqueeBase = null; S.marqueeItems = false;
-  S.dragPreview = null; S.bgPreview = false;
-  S.tool = 'select'; S.mode = 'region';
-  S.overlayVisible = true; overlay.visible = true;
-  S.showDigital = true;
+  // only global preferences. (pmap, content, variants, dirtySides already nulled above.)
+  appState.pdfBytes = null; appState.pdfName = ''; appState.sha256 = ''; appState.pdfLanguage = null;
+  appState.page = 1; appState.zoom = 1.2;
+  appState.selected.clear(); clearItemSelection(); appState.awaitingOcr.clear();
+  appState.itemIndex = 0; appState.itemSelected = false; appState.selectedVertex = null;
+  appState.draft = []; appState.splitPts = []; appState.cursor = null;
+  appState.marquee = null; appState.marqueeBase = null; appState.marqueeItems = false;
+  appState.dragPreview = null; appState.bgPreview = false;
+  appState.eyedropperKey = false; cancelEyedropper();
+  appState.tool = 'select'; appState.mode = 'region';
+  appState.overlayVisible = true; overlay.visible = true;
+  appState.showDigital = true;
   history.clear();
 
   lastPdfRender = { page: 0, zoom: 0 };
@@ -6325,7 +6903,6 @@ async function closePdf() {
   stage.zoom = 1;
   els.zoomLabel.textContent = '100%';
   syncPropsForm();
-  applyLensChrome();
   refreshMapInfo();
   setStatus(`Closed ${name}.`);
 }
@@ -6334,60 +6911,6 @@ async function closePdf() {
 // session and this PDF's per-document prefs (see clearSavedSession above), so the saved
 // "session" never outlives the document it belongs to and no separate menu command is
 // needed. Opening another PDF overwrites the session with the new document instead.
-
-// The "Translate from page text" button lives in the *contextual* region toolbar, so the
-// button — and therefore its shortcut — only exists while a region is selected and neither an
-// item nor the text dialog has taken over (Section 9b). The shortcut is gated on the button
-// actually being on screen, not on a re-derivation of those conditions, so Shift+T means
-// "translate this region" exactly when a click on the button would, and does nothing otherwise.
-function translateButtonVisible() {
-  const b = $('btn-translate-page-text');
-  return S.lens === 'translate' && !!b && !b.hidden && !!els.regionTools && !els.regionTools.hidden;
-}
-function makeSelectableButtonVisible() {
-  const b = els.btnMakeSelectable;
-  return S.lens === 'improve' && !!b && !b.hidden && !!els.regionTools && !els.regionTools.hidden;
-}
-
-// global keyboard shortcuts (ignore while typing in a field)
-window.addEventListener('keydown', (e) => {
-  const ae = document.activeElement;
-  const tag = ae?.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || ae?.isContentEditable) return;
-  // A custom dialog (confirm/prompt replacement) is modal for the page shortcuts too.
-  if (document.body.dataset.dialogOpen) return;
-  // The text dialog is modal: while it is open it owns the keyboard, so focus sitting on
-  // the dialog (not the editor) can't reach the page shortcuts behind it. Esc finishes
-  // editing, like Esc in the editor itself.
-  if (els.textModal && !els.textModal.hidden) {
-    if (e.key === 'Escape') { e.preventDefault(); commitInlineEditor(); }
-    return;
-  }
-  // The find dialog is modal for the page, but its inputs keep their own editing keys.
-  if (els.findModal && !els.findModal.hidden) {
-    if (e.key === 'Escape') { e.preventDefault(); closeFindReplace(); }
-    return;
-  }
-  const mod = e.ctrlKey || e.metaKey;
-  if (mod && e.key.toLowerCase() === 'f' && S.pmap && S.project) { e.preventDefault(); openFindReplace(); }
-  else if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); els.filePdf.click(); }
-  else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); if (S.pmap) saveProjectPart('both'); }
-  else if (mod && e.key.toLowerCase() === 'a' && S.pmap && (inRegion() || inContent())) { e.preventDefault(); selectAll(); }
-  else if (e.key === 'Tab') { e.preventDefault(); cycleMode(e.shiftKey); }
-  else if (e.key === '0') toggleOverlay();
-  else if ((e.key === 'p' || e.key === 'P') && inRegion() && !mod && !e.altKey) { e.preventDefault(); armPolygon(); }
-  else if (e.shiftKey && !mod && !e.altKey && e.key.toLowerCase() === 't' && (translateButtonVisible() || makeSelectableButtonVisible())) {
-    e.preventDefault();
-    if (S.lens === 'improve') extractSelectedContent(); else translateFromPageText();
-  }
-  else if ((e.key === 'i' || e.key === 'I') && !mod && !e.altKey && backgroundButtonVisible()) { e.preventDefault(); openBackgroundPicker(); }
-  else if ((e.key === 't' || e.key === 'T') && !e.shiftKey && inContent() && currentRegion()) { e.preventDefault(); addTextItem(); }
-  else if ((e.key === 'l' || e.key === 'L') && isEditMode() && !mod && !e.altKey) { e.preventDefault(); toggleLockSelected(); }
-  else if (e.shiftKey && !mod && !e.altKey && e.key.toLowerCase() === 'd' && viewer.doc) { e.preventDefault(); toggleDigitalVersion(); }
-  else if (e.shiftKey && !mod && !e.altKey && e.key.toLowerCase() === 'a' && S.pmap && isEditMode()) { e.preventDefault(); selectTextRegionsWithoutContent(); }
-  else if ((e.key === 'd' || e.key === 'D') && viewer.doc && !mod && !e.altKey && !e.shiftKey) { e.preventDefault(); detectRegionsOnPage(); }
-  else if ((e.key === 'r' || e.key === 'R') && isEditMode() && !mod && !e.altKey) { e.preventDefault(); resizeAllTextInPage(); }
-});
 
 // Bring back the last session (the PDF and its map) from IndexedDB, if there is one.
 restoreSession().catch(() => {});

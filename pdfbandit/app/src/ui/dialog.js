@@ -32,8 +32,11 @@ function fieldNode(spec) {
     sel.id = 'app-dialog-input';
     for (const o of spec.options || []) {
       const opt = document.createElement('option');
-      opt.value = o.value;
-      opt.textContent = o.label;
+      // Accept either plain strings or { value, label } objects.
+      const val = typeof o === 'string' ? o : o.value;
+      const label = typeof o === 'string' ? o : o.label;
+      opt.value = val;
+      opt.textContent = label;
       sel.appendChild(opt);
     }
     sel.value = spec.value ?? (spec.options?.[0]?.value ?? '');

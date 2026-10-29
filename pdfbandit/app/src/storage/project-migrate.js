@@ -11,6 +11,7 @@
 // (pdfbandit/tools/pmap-migrate.mjs, the CLI the spec's migration step asks for).
 import { normalizeRegion, DEFAULT_BACKGROUND } from '../model/region.js';
 import { normalizeDetectedType } from '../model/detection.js';
+import { defaultContentName } from './content-file.js';
 
 export const MAP_FORMAT = 'pmap';
 export const MAP_VERSION = '2.0';          // the structure-only map
@@ -130,12 +131,13 @@ async function deriveMapId(norm) {
  * Pure and side-effect free: returns the file contents and the asset bytes, the
  * CLI does the writing.
  *
- * opts: { variant, label, mapName, contentName, assetsDir, externalizeDataUris, mapId }
+ * opts: { sourceLanguage, destinationLanguage, label, mapName, contentName, assetsDir, externalizeDataUris, mapId }
  * returns { map, content, assets, report, warnings }
  */
 export async function splitLegacyPmap(legacy, opts = {}) {
   const {
-    variant = legacy?.meta?.language || FALLBACK_LANGUAGE,
+    sourceLanguage = legacy?.meta?.language || FALLBACK_LANGUAGE,
+    destinationLanguage = sourceLanguage,
     label = legacy?.meta?.label || '',
     mapName = legacy?.meta?.name || `${MAP_FORMAT}.pmap`,
     contentName = '',
@@ -247,8 +249,9 @@ export async function splitLegacyPmap(legacy, opts = {}) {
     version: CONTENT_VERSION,
     mapId: resolvedMapId,
     meta: {
-      name: contentName || `${mapName.replace(/\.pmap$/i, '')}.${variant}${CONTENT_SUFFIX}`,
-      language: variant,
+      name: contentName || defaultContentName(mapName, sourceLanguage, destinationLanguage),
+      sourceLanguage,
+      destinationLanguage,
       ...(label ? { label } : {}),
       created: norm.meta?.created || '',
       modified: norm.meta?.modified || '',
@@ -312,7 +315,7 @@ export function joinProject(map, content) {
     version: LEGACY_VERSION,
     meta: {
       name: map.meta?.name || `${MAP_FORMAT}.pmap`,
-      language: content.meta?.language,
+      language: content.meta?.sourceLanguage || content.meta?.language,
       ...(content.meta?.label ? { label: content.meta.label } : {}),
       created: content.meta?.created || map.meta?.created || '',
       modified: content.meta?.modified || map.meta?.modified || '',
@@ -415,7 +418,7 @@ export async function validateRoundTrip(before, after, opts = {}) {
   const checks = [];
   const add = (name, ok, detail) => { checks.push({ name, ok, detail }); return ok; };
 
-  const expectLang = opts.expect?.language ?? before?.meta?.language;
+  const expectLang = opts.expect?.language ?? opts.expect?.sourceLanguage ?? before?.meta?.language;
   const expectLabel = opts.expect?.label ?? before?.meta?.label;
   add('content variant metadata (language/label)',
     (after.meta?.language ?? null) === (expectLang ?? null) && (after.meta?.label || '') === (expectLabel || ''),

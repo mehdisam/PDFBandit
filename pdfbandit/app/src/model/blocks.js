@@ -3,8 +3,8 @@
 // the DOM back into the model. Character formatting reuses the rich-text helpers
 // (runs are per-character overrides on a block's base style).
 import {
-  normalizeStyle, HEADING_SCALE, DEFAULT_TABLE_BORDER, DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT,
-  normalizeBlocks, normalizeTableBlock,
+  normalizeStyle, DEFAULT_STYLE, HEADING_SCALE, DEFAULT_TABLE_BORDER, DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT,
+  normalizeBlocks, normalizeTableBlock, charStyles,
 } from './region.js';
 import { richToHtml, readRich } from './richtext.js';
 
@@ -42,7 +42,11 @@ export function blocksToHtml(blocks, itemStyle) {
         const lvl = it.level || 0;
         counters[lvl] = (counters[lvl] || 0) + 1;
         for (const k of Object.keys(counters)) if (+k > lvl) delete counters[k];
-        const mark = `<span class="rt-li-mark" contenteditable="false">${orderedMark(b.ordered, lvl, counters)}</span>`;
+        // Bullet/number glyph size matches the first character of the line so the
+        // mark stays in proportion with the text instead of the item's default size.
+        const cs = charStyles(it, base);
+        const firstSize = (cs && cs.length ? cs[0].size : null) || base.size || DEFAULT_STYLE.size;
+        const mark = `<span class="rt-li-mark" contenteditable="false" style="font-size:${firstSize}px">${orderedMark(b.ordered, lvl, counters)}</span>`;
         return `<div class="rt-li" data-level="${lvl}" style="padding-left:${lvl * 18}px">${mark}<div class="rt-li-body" data-flow="${bi}.${ii}">${flowHtml(it.value, base, it.runs)}</div></div>`;
       }).join('');
       out.push(`<div class="rt-blk rt-list" data-blk="${bi}" data-type="list" data-ordered="${b.ordered ? 1 : 0}" data-dir="${b.direction}">${items}</div>`);
@@ -62,7 +66,7 @@ export function blocksToHtml(blocks, itemStyle) {
         }).join('');
         return `<tr data-row="${ri}" style="height:${Math.max(8, row.height || DEFAULT_ROW_HEIGHT)}px">${tds}</tr>`;
       }).join('');
-      out.push(`<div class="rt-blk rt-table" data-blk="${bi}" data-type="table" dir="${b.dir}"><table class="rt-table-el" style="width:${totalW}px;border-collapse:collapse;table-layout:fixed;"><colgroup>${cols}</colgroup><tbody>${rows}</tbody></table></div>`);
+      out.push(`<div class="rt-blk rt-table" data-blk="${bi}" data-type="table" dir="${b.dir}" style="margin-left:${b.offsetX || 0}px;position:relative"><div class="rt-table-move-handle" data-table-move="${bi}" title="Drag to move table"></div><table class="rt-table-el" style="width:${totalW}px;border-collapse:collapse;table-layout:fixed;"><colgroup>${cols}</colgroup><tbody>${rows}</tbody></table></div>`);
     } else {
       const base = flowBase(itemStyle, 'paragraph', null, b.align, b.direction);
       out.push(`<div class="rt-blk rt-para" data-blk="${bi}" data-flow="${bi}" data-type="paragraph" data-align="${b.align}" data-dir="${b.direction}">${flowHtml(b.value, base, b.runs)}</div>`);
@@ -139,9 +143,11 @@ export function htmlToBlocks(root, itemStyle) {
         if (Number.isFinite(bw)) border.width = bw;
         if (firstTd.style.borderTopColor) border.color = firstTd.style.borderTopColor;
       }
+      const offsetX = parseFloat(el.style.marginLeft) || 0;
       blocks.push(normalizeTableBlock({
         type: 'table',
         dir: el.getAttribute('dir') === 'rtl' ? 'rtl' : 'ltr',
+        offsetX,
         border,
         columns: cols.map(c => ({ width: parseFloat(c.style.width) || DEFAULT_COL_WIDTH })),
         rows,

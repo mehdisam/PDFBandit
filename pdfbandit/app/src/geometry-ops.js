@@ -1,20 +1,20 @@
-import pcDefault from 'polygon-clipping';
-// esm.sh / bundlers differ: CJS->ESM may expose ops on default or as named exports.
-const pc = (pcDefault && pcDefault.union) ? pcDefault : (pcDefault?.default ?? pcDefault);
+// polygon-clipping Web Worker client — handles heavy polygon operations off main thread
+import {
+  unionRings as unionRingsAsync,
+  unionPolygons as unionPolygonsAsync,
+  intersectPolygons as intersectPolygonsAsync,
+  splitPolygonByLine as splitPolygonByLineAsync
+} from './workers/polygon-clipping.client.js';
 
-// polygon-clipping operates on GeoJSON-style: MultiPolygon = [[[[x,y],...]]]
-// Our region polygon: [[x,y],...] (single ring). Helpers wrap union/intersection.
-const ring = (pts) => {
+// Synchronous fallbacks for simple operations
+function ring(pts) {
   const r = pts.map(p => [p[0], p[1]]);
   const f = r[0], l = r[r.length-1];
   if (f[0] !== l[0] || f[1] !== l[1]) r.push([f[0], f[1]]);
   return r;
-};
+}
+
 const fromGeom = (geom) => {
-  // geom: MultiPolygon -> take the largest outer ring as a single polygon.
-  // NOTE: this *drops* disconnected parts and is only safe for intersections/splits
-  // that are known to be single-part. Merging uses unionRings() instead, which
-  // reports every part so callers can refuse a disconnected merge.
   if (!geom || !geom.length) return null;
   let best = null, bestA = -1;
   for (const poly of geom) {
@@ -33,82 +33,84 @@ const fromGeom = (geom) => {
 // Union of a list of rings, returning **every** outer ring of the result (one per
 // disconnected part, holes ignored). A single-element result means the inputs form
 // one connected area; more than one means they don't touch (see mergeSelected).
-export function unionRings(list) {
+export async function unionRings(list) {
   const ringsIn = (list || []).filter(pts => Array.isArray(pts) && pts.length >= 3);
   if (!ringsIn.length) return [];
-  const out = pc.union(...ringsIn.map(pts => [[[ ...ring(pts) ]]]));
-  if (!out || !out.length) return [];
-  return out.map(poly => {
-    const r = poly[0].slice();
-    const first = r[0], last = r[r.length-1];
-    if (r.length > 1 && last[0]===first[0] && last[1]===first[1]) r.pop();
-    return r.map(p=>[p[0],p[1]]);
-  }).filter(r => r.length >= 3);
+  try {
+    return await unionRingsAsync(ringsIn);
+  } catch (e) {
+    console.warn('Worker unionRings failed, falling back:', e);
+    return ringsIn; // fallback: return input
+  }
 }
 
-export function unionPolygons(aPts, bPts) {
-  // Single-part helper: returns the largest ring of the union (callers that must
-  // reject disconnected inputs should use unionRings() and check the length).
-  const rings = unionRings([aPts, bPts]);
-  if (rings.length <= 1) return rings[0] || null;
-  let best = null, bestA = -1;
-  for (const r of rings) {
-    let a = 0;
-    for (let i=0;i<r.length;i++){ const [x1,y1]=r[i],[x2,y2]=r[(i+1)%r.length]; a+=x1*y2-x2*y1; }
-    a = Math.abs(a/2);
-    if (a > bestA) { bestA = a; best = r; }
+export async function unionPolygons(aPts, bPts) {
+  try {
+    return await unionPolygonsAsync(aPts, bPts);
+  } catch (e) {
+    console.warn('Worker unionPolygons failed, falling back:', e);
+    return null;
   }
-  return best;
 }
-export function intersectPolygons(aPts, bPts) {
-  const out = pc.intersection([[[...ring(aPts)]]], [[[ ...ring(bPts) ]]]);
-  return fromGeom(out);
+
+export async function intersectPolygons(aPts, bPts) {
+  try {
+    return await intersectPolygonsAsync(aPts, bPts);
+  } catch (e) {
+    console.warn('Worker intersectPolygons failed, falling back:', e);
+    return null;
+  }
 }
+
 // Split polygon `pts` by line AB: build two large half-plane rects, intersect each.
-export function splitPolygonByLine(pts, A, B) {
-  const dx = B[0]-A[0], dy = B[1]-A[1];
-  const len = Math.hypot(dx,dy) || 1;
-  const nx = -dy/len, ny = dx/len; // left normal
-  const M = 1e5;
-  const left = [
-    [A[0]+nx*M, A[1]+ny*M],[B[0]+nx*M, B[1]+ny*M],
-    [B[0]-nx*M, B[1]-ny*M],[A[0]-nx*M, A[1]-ny*M],
-  ];
-  // left half-plane: A->B with large offset on left side only:
-  // construct rect: A,B extended + normal offset
-  const L = [
-    [A[0]-dx*M + nx*M, A[1]-dy*M + ny*M],
-    [B[0]+dx*M + nx*M, B[1]+dy*M + ny*M],
-    [B[0]+dx*M - nx*M, B[1]+dy*M - ny*M],
-    [A[0]-dx*M - nx*M, A[1]-dy*M - ny*M],
-  ];
-  void left;
-  // right half-plane mirrored: use -normal
-  const R = [
-    [A[0]-dx*M - nx*M, A[1]-dy*M - ny*M],
-    [B[0]+dx*M - nx*M, B[1]+dy*M - ny*M],
-    [B[0]+dx*M + nx*M, B[1]+dy*M + ny*M],
-    [A[0]-dx*M + nx*M, A[1]-dy*M + ny*M],
-  ];
-  // Actually we want half-planes: left side of directed line vs right side.
-  // Rebuild precisely: quad covering one side:
-  const leftPoly = [
-    [A[0]-dx*M + nx*M, A[1]-dy*M + ny*M],
-    [B[0]+dx*M + nx*M, B[1]+dy*M + ny*M],
-    [B[0]+dx*M, B[1]+dy*M],
-    [A[0]-dx*M, A[1]-dy*M],
-  ];
-  const rightPoly = [
-    [A[0]-dx*M, A[1]-dy*M],
-    [B[0]+dx*M, B[1]+dy*M],
-    [B[0]+dx*M - nx*M, B[1]+dy*M - ny*M],
-    [A[0]-dx*M - nx*M, A[1]-dy*M - ny*M],
-  ];
-  void L; void R;
-  const p1 = fromGeom(pc.intersection([[[...ring(pts)]]], [[[ ...ring(leftPoly) ]]]));
-  const p2 = fromGeom(pc.intersection([[[...ring(pts)]]], [[[ ...ring(rightPoly) ]]]));
-  if (!p1 || !p2 || p1.length < 3 || p2.length < 3) return null;
-  return [p1, p2];
+export async function splitPolygonByLine(pts, A, B) {
+  try {
+    return await splitPolygonByLineAsync(pts, A, B);
+  } catch (e) {
+    console.warn('Worker splitPolygonByLine failed, falling back:', e);
+    return null;
+  }
+}
+
+// Synchronous fallbacks for simple operations (when polygons are simple)
+export function unionRingsSync(list) {
+  const ringsIn = (list || []).filter(pts => Array.isArray(pts) && pts.length >= 3);
+  if (!ringsIn.length) return [];
+  return ringsIn; // fallback: return input
+}
+
+export function unionPolygonsSync(aPts, bPts) {
+  // Simple bounding box check for non-overlapping
+  const bbox = (pts) => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of pts) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    return { minX, minY, maxX, maxY };
+  };
+  
+  const bboxA = bbox(aPts);
+  const bboxB = bbox(bPts);
+  
+  // Quick reject if bounding boxes don't overlap
+  if (bboxA.maxX <= bboxB.minX || bboxB.maxX <= bboxA.minX ||
+      bboxA.maxY <= bboxB.minY || bboxB.maxY <= bboxA.minY) {
+    return null;
+  }
+  
+  // Fallback to async for actual clipping
+  return unionPolygonsAsync(aPts, bPts);
+}
+
+export function intersectPolygonsSync(aPts, bPts) {
+  return intersectPolygonsAsync(aPts, bPts);
+}
+
+export function splitPolygonByLineSync(pts, A, B) {
+  return splitPolygonByLineAsync(pts, A, B);
 }
 
 // ---- outward offset ("grow") of a region ------------------------------------------

@@ -4,6 +4,11 @@
 // layer; figures come from the operator list (raster placements and vector drawings, see
 // detect_ops.js) and are already unpadded.
 import * as pdfjs from 'pdfjs-dist';
+
+// Configure PDF.js worker (verbosity is read-only in newer versions)
+pdfjs.GlobalWorkerOptions.workerSrc =
+  'https://esm.sh/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+// pdfjs.verbosity = 0; // verbosity is read-only in newer versions
 import { bboxOfPoints, imageBoxes, vectorBoxes } from './detect_ops.js';
 
 const OPS = pdfjs.OPS;

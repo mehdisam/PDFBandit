@@ -1,10 +1,15 @@
 // Content variants: the language half of a v2 project.
 //
 // A project on disk is a structure-only `.pmap` (shared geometry, stable region ids —
-// see storage/pmap.js) plus one `<stem>.<variant>.content.json` per language or
-// variant, keyed by those same ids. This module owns that half: its own shape, its
-// name convention, and the resolution of the two halves into the one object the editor
-// works on (`resolveProject`).
+// see storage/pmap.js) plus one `<stem>.<variant>.content.json` per variant, keyed by
+// those same region ids. This module owns that half: its own shape, its name convention,
+// and the resolution of the two halves into the one object the editor works on
+// (`resolveProject`).
+//
+// A content variant names both its *source* and *destination* language. When they are
+// equal the variant is an "improve" variant (the PDF's own language, made selectable);
+// when they differ it is a "translate" variant (source → destination). The editor derives
+// the workflow from this equality — there is no separate lens concept.
 //
 // The editor deliberately consumes the *resolved* project — every region carries its
 // content — so nothing downstream (rendering, editing, export) has to know where the
@@ -24,24 +29,33 @@ export function contentStem(name) { return String(name || '').replace(/\.content
 export function mapStem(name) { return String(name || '').replace(/\.pmap$/i, '').replace(/\.pdf$/i, ''); }
 
 export function defaultMapName(filename) { return `${mapStem(filename || 'document')}.pmap`; }
-export function defaultContentName(stem, language) {
-  return `${mapStem(stem || 'document')}.${language || FALLBACK_LANGUAGE}${CONTENT_SUFFIX}`;
+export function defaultContentName(stem, sourceLanguage, destinationLanguage) {
+  const src = sourceLanguage || FALLBACK_LANGUAGE;
+  const dst = destinationLanguage || src;
+  return src === dst
+    ? `${mapStem(stem || 'document')}.${src}${CONTENT_SUFFIX}`
+    : `${mapStem(stem || 'document')}.${src}-${dst}${CONTENT_SUFFIX}`;
 }
 
 // ---------------------------------------------------------------- content variants
 // A variant with no entries at all: every region falls back to the default content
 // (transparent background, no items) — the source page shows through, which is a valid
-// state and the natural starting point for a new language.
-export function emptyContentVariant({ mapId, language = FALLBACK_LANGUAGE, label = '', name = '', created = '' } = {}) {
+// state and the natural starting point for a new language. When source and destination
+// are equal this is an "improve" variant (the PDF's own language made selectable);
+// otherwise it is a "translate" variant (source → destination).
+export function emptyContentVariant({ mapId, sourceLanguage = FALLBACK_LANGUAGE, destinationLanguage = sourceLanguage, label = '', name = '', created = '' } = {}) {
   if (!mapId) throw new Error('A content variant needs the id of the map it belongs to');
   const now = new Date().toISOString();
+  const src = String(sourceLanguage || FALLBACK_LANGUAGE);
+  const dst = String(destinationLanguage || src);
   return {
     format: CONTENT_FORMAT,
     version: CONTENT_VERSION,
     mapId,
     meta: {
-      name: name || defaultContentName('document', language),
-      language,
+      name: name || defaultContentName('document', src, dst),
+      sourceLanguage: src,
+      destinationLanguage: dst,
       ...(label ? { label } : {}),
       created: created || now,
       modified: created || now,
@@ -59,12 +73,22 @@ export function parseContent(textOrObj) {
   if (!obj.regions || typeof obj.regions !== 'object' || Array.isArray(obj.regions)) {
     throw new Error('Invalid content variant: regions missing');
   }
+  const meta = obj.meta || {};
+  if (!meta.sourceLanguage) throw new Error('Invalid content variant: sourceLanguage missing');
+  if (!meta.destinationLanguage) throw new Error('Invalid content variant: destinationLanguage missing');
   if (!Array.isArray(obj.assets)) obj.assets = [];
   for (const [id, entry] of Object.entries(obj.regions)) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error(`Content entry for region ${id} is not an object`);
     if (!Array.isArray(entry.items)) entry.items = [];
   }
   return obj;
+}
+
+// True when source and destination are the same language: an "improve" variant (the PDF's
+// own language made selectable) rather than a "translate" variant (source → destination).
+export function isImproveVariant(content) {
+  const m = content && content.meta;
+  return !!m && String(m.sourceLanguage || '').toLowerCase() === String(m.destinationLanguage || '').toLowerCase();
 }
 
 // Pure, like serializeMap: the caller owns `meta.modified`.
@@ -95,11 +119,11 @@ export function createMap({ filename, sha256, pageCount, mapId = newMapId(), nam
 }
 
 // A brand new project: an empty shared map plus one empty content variant.
-export function createEmptyProject({ filename, sha256, pageCount, language = 'en', label = 'Base map', mapId } = {}) {
+export function createEmptyProject({ filename, sha256, pageCount, sourceLanguage = 'en', destinationLanguage = sourceLanguage, label = 'Base map', mapId } = {}) {
   const map = createMap({ filename, sha256, pageCount, mapId });
   const content = emptyContentVariant({
-    mapId: map.mapId, language, label,
-    name: defaultContentName(filename, language),
+    mapId: map.mapId, sourceLanguage, destinationLanguage, label,
+    name: defaultContentName(filename, sourceLanguage, destinationLanguage),
     created: map.meta.created,
   });
   return resolveProject(map, content);
@@ -119,9 +143,10 @@ export function resolveProject(mapOrText, contentOrText = null, opts = {}) {
   const content = contentOrText == null
     ? emptyContentVariant({
         mapId: map.mapId,
-        language: opts.language || FALLBACK_LANGUAGE,
+        sourceLanguage: opts.sourceLanguage || FALLBACK_LANGUAGE,
+        destinationLanguage: opts.destinationLanguage || opts.sourceLanguage || FALLBACK_LANGUAGE,
         label: opts.label || '',
-        name: opts.name || defaultContentName(map.meta?.name || 'document', opts.language || FALLBACK_LANGUAGE),
+        name: opts.name || defaultContentName(map.meta?.name || 'document', opts.sourceLanguage || FALLBACK_LANGUAGE, opts.destinationLanguage || opts.sourceLanguage || FALLBACK_LANGUAGE),
       })
     : parseContent(contentOrText);
   const merged = joinProject(map, content);

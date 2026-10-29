@@ -132,7 +132,7 @@ export function normalizeTableBlock(b) {
     return { height: Number.isFinite(h) && h > 0 ? h : DEFAULT_ROW_HEIGHT, cells };
   });
   const border = b?.border || {};
-  return {
+  const out = {
     type: 'table',
     dir: asDir(b?.dir),
     border: {
@@ -142,6 +142,9 @@ export function normalizeTableBlock(b) {
     columns,
     rows,
   };
+  const ox = Number.isFinite(+b?.offsetX) ? +b.offsetX : 0;
+  if (ox) out.offsetX = ox;
+  return out;
 }
 
 export function normalizeBlock(b) {
@@ -254,12 +257,34 @@ export function normalizeItem(item) {
 }
 
 // Effective per-character style for a text item (base style + run overrides).
-export function charStyles(item) {
-  const base = normalizeStyle(item.style);
-  const n = String(item.value ?? '').length;
+// Memoized with a WeakMap cache keyed by flow object; invalidates when value/runs/baseStyle change.
+const charStylesCache = new WeakMap();
+
+export function charStyles(flow, baseStyle) {
+  // Support two calling conventions:
+  // 1. charStyles(flow, baseStyle) - flow is { value, runs } from inlineState.blocks
+  // 2. charStyles({ value, style, runs }) - legacy call from viewmode/exporter/richtext
+  const isFlowObj = flow && typeof flow === 'object' && 'runs' in flow && !('style' in flow);
+  const value = isFlowObj ? flow.value : flow?.value;
+  const runs = isFlowObj ? flow.runs : flow?.runs;
+  const base = baseStyle || normalizeStyle(isFlowObj ? flow.style : flow?.style);
+
+  if (!value) return [];
+
+  const n = String(value).length;
+  const runsArray = runs || [];
+  const baseKey = baseStyleKey(base);
+  const runsHash = runsArray.map(r => `${r.start}:${r.end}:${r.bold ?? ''}:${r.italic ?? ''}:${r.underline ?? ''}:${r.font ?? ''}:${r.color ?? ''}:${r.size ?? ''}:${r.direction ?? ''}:${r.align ?? ''}`).join('|');
+  const cacheKey = `${n}:${baseKey}:${runsHash}`;
+
+  // Use flow object as cache key if available, otherwise create a temp object for caching
+  const cacheKeyObj = isFlowObj ? flow : { __cacheKey: cacheKey };
+  const cached = charStylesCache.get(cacheKeyObj);
+  if (cached && cached.key === cacheKey) return cached.styles;
+
   const cs = new Array(n);
   for (let i = 0; i < n; i++) cs[i] = { bold: base.bold, italic: base.italic, underline: base.underline, font: base.font, color: base.color, size: base.size, direction: base.direction, align: base.align };
-  for (const r of (item.runs || [])) {
+  for (const r of runsArray) {
     for (let i = r.start; i < r.end && i < n; i++) {
       const c = cs[i];
       if (r.bold != null) c.bold = r.bold;
@@ -272,7 +297,12 @@ export function charStyles(item) {
       if (r.align) c.align = r.align;
     }
   }
+  charStylesCache.set(cacheKeyObj, { key: cacheKey, styles: cs });
   return cs;
+}
+
+function baseStyleKey(style) {
+  return `${style.bold}:${style.italic}:${style.underline}:${style.font}:${style.color}:${style.size}:${style.direction}:${style.align}:${style.lineHeight ?? ''}`;
 }
 
 // Default item box = whole region (relative to its bbox origin).

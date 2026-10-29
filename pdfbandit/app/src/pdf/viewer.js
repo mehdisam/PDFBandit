@@ -1,8 +1,12 @@
 // pdf.js wrapper: load document, render pages, thumbnails. No map logic.
 import * as pdfjs from 'pdfjs-dist';
 
+// Use the same CDN as the importmap for consistency
+// Configure worker to prevent main-thread blocking
 pdfjs.GlobalWorkerOptions.workerSrc =
-  'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+  'https://esm.sh/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+pdfjs.GlobalWorkerOptions.workerPort = null; // Use default message channel
+// pdfjs.verbosity = 0; // verbosity is read-only in newer versions
 
 export class PdfViewer {
   constructor() {

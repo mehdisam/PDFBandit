@@ -30,7 +30,7 @@ function cachedImage(src) {
 // when `mask` is true — Edit mode uses it for the region currently being edited, so the
 // source PDF stays visible under the cursor while every other region already looks the
 // way Preview mode and the export will render it.
-export function renderView({ viewCanvas, baseCanvas, regions, zoom, overflowMark = true, mask = true, maskExcept = null }) {
+export function renderView({ viewCanvas, baseCanvas, regions, zoom, overflowMark = true, mask = true, maskExcept = null, alpha = 1 }) {
   const w = Math.round(baseCanvas.clientWidth), h = Math.round(baseCanvas.clientHeight);
   viewCanvas.style.width = `${w}px`; viewCanvas.style.height = `${h}px`;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -47,11 +47,12 @@ export function renderView({ viewCanvas, baseCanvas, regions, zoom, overflowMark
     const useMask = mask && !(maskExcept && maskExcept.has(r.id));
     const rings = regionRings(r.geometry);
     const pts = regionPoints(r.geometry);
-    // 1. mask original (opaque), clipped to the polygon
+    // 1. mask original (tinted by `alpha`), clipped to the polygon
     if (useMask) {
       ctx.save();
       pathRings(ctx, rings, s);
       ctx.fillStyle = normalizeColor(r.content?.background, DEFAULT_BACKGROUND);
+      if (alpha < 1) ctx.globalAlpha = alpha;
       ctx.fill();
       ctx.restore();
     }

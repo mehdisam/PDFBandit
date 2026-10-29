@@ -50,15 +50,17 @@ export function baseFmt(style) {
   return {
     bold: st.bold, italic: st.italic, underline: st.underline, font: st.font,
     color: toHex(st.color), size: st.size, direction: st.direction, align: st.align,
+    background: toHex(st.background),
   };
 }
 
 export function spanCss(c) {
   const p = [];
-  if (c.bold) p.push('font-weight:700');
-  if (c.italic) p.push('font-style:italic');
-  if (c.underline) p.push('text-decoration:underline');
+  p.push('font-weight:' + (c.bold ? '700' : '400'));
+  p.push('font-style:' + (c.italic ? 'italic' : 'normal'));
+  p.push('text-decoration:' + (c.underline ? 'underline' : 'none'));
   p.push('color:' + (c.color || DEFAULT_STYLE.color));
+  if (c.background) p.push('background-color:' + c.background);
   p.push('font-family:' + (FONT_CSS[c.font] || FONT_CSS.sans));
   p.push('font-size:' + (c.size || DEFAULT_STYLE.size) + 'px');
   p.push('unicode-bidi:embed');
@@ -69,7 +71,8 @@ export function spanCss(c) {
 // Alignment is a per-line property; spans only split on character styles.
 function sameStyle(a, b) {
   return a.bold === b.bold && a.italic === b.italic && a.underline === b.underline
-    && a.font === b.font && a.color === b.color && a.size === b.size && a.direction === b.direction;
+    && a.font === b.font && a.color === b.color && a.size === b.size && a.direction === b.direction
+    && a.background === b.background;
 }
 
 // value + runs -> HTML with one <div> per line and one <span> per run of style.
@@ -107,13 +110,16 @@ export function mergeFmt(fmt, el) {
   if (tag === 'U') f.underline = true;
   const st = el.style;
   if (st) {
-    if (st.fontWeight === 'bold' || parseInt(st.fontWeight, 10) >= 600) f.bold = true;
-    else if (st.fontWeight === 'normal') f.bold = false;
+    const fw = parseInt(st.fontWeight, 10);
+    if (st.fontWeight === 'bold' || (Number.isFinite(fw) && fw >= 600)) f.bold = true;
+    else if (st.fontWeight === 'normal' || (Number.isFinite(fw) && fw < 600)) f.bold = false;
     if (st.fontStyle === 'italic') f.italic = true;
     else if (st.fontStyle === 'normal') f.italic = false;
     const deco = (st.textDecoration || '') + ' ' + (st.textDecorationLine || '');
     if (deco.includes('underline')) f.underline = true;
+    else if (deco.includes('none')) f.underline = false;
     if (st.color) f.color = toHex(st.color);
+    if (st.backgroundColor) f.background = toHex(st.backgroundColor);
     if (st.fontFamily) f.font = fontFromCss(st.fontFamily);
     if (st.fontSize) { const sz = parseFloat(st.fontSize); if (Number.isFinite(sz) && sz > 0) f.size = sz; }
     if (st.direction === 'rtl' || st.direction === 'ltr') f.direction = st.direction;
@@ -149,8 +155,10 @@ export function runsFromPerChar(per, base, n, text) {
     if (c.size !== b.size) o.size = c.size;
     if (c.direction !== b.direction) o.direction = c.direction;
     if (c.align !== b.align) o.align = c.align;
+    if (c.background !== b.background) o.background = c.background;
     if (o.bold !== undefined || o.italic !== undefined || o.underline !== undefined || o.font !== undefined
-        || o.color !== undefined || o.size !== undefined || o.direction !== undefined || o.align !== undefined) runs.push(o);
+        || o.color !== undefined || o.size !== undefined || o.direction !== undefined || o.align !== undefined
+        || o.background !== undefined) runs.push(o);
     i = j;
   }
   return normalizeRuns(runs, n);
@@ -173,6 +181,9 @@ export function applyFormatToRuns(text, baseStyle, runs, start, end, key, value)
   let v = value;
   if (key === 'bold' || key === 'italic' || key === 'underline') {
     if (value === undefined) v = !(cs[s] ? cs[s][key] : false);
+  }
+  if (key === 'background') {
+    // background is a direct color value, not a toggle
   }
   if (prop === 'size') v = Math.max(4, Math.min(200, Number(value) || DEFAULT_STYLE.size));
   const per = cs.map(c => ({ ...c }));

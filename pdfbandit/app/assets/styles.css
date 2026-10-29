@@ -10,6 +10,7 @@
   --accent: #2563eb;
   --accent-soft: #dbe8f7;
   --accent-soft-hover: #cfe0f5;
+  --ok: #1a7f37;
 }
 * { box-sizing: border-box; }
 body { margin:0; font:13px/1.4 system-ui,-apple-system,Segoe UI,sans-serif; background:var(--bg); color:var(--fg); height:100vh; display:flex; flex-direction:column; }
@@ -43,13 +44,69 @@ body { margin:0; font:13px/1.4 system-ui,-apple-system,Segoe UI,sans-serif; back
 /* Everything in the toolbar keeps its size; only the status text is elastic, and it
    ellipsises instead of wrapping. Otherwise a long status message squeezes the mode
    group, whose button labels wrap and make the whole bar (and the canvas) taller. */
-#toolbar > *:not(.status) { flex:0 0 auto; }
 #toolbar button, #toolbar .mode-group button { white-space:nowrap; }
 #toolbar .status { margin-left:auto; flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12.5px; }
+#toolbar .status.status-error { color:#d32f2f; }
+#toolbar .status.status-warning { color:#f57c00; }
+#toolbar .status.status-success { color:#388e3c; }
+#toolbar .status.status-info { color:var(--muted); }
 #toolbar #status-progress { display:inline-flex; align-items:center; gap:6px; margin-left:auto; font-size:12.5px; color:var(--muted); }
 #toolbar #status-progress[hidden] { display:none; }
 #toolbar #status-progress progress { width:110px; height:10px; }
 #toolbar #status-progress:not([hidden]) ~ .status { margin-left:8px; }
+/* ---- second status bar (progress + status message, above bottom bar) ---- */
+#status-bar-2 { display:flex; align-items:center; gap:8px; padding:6px 14px; background:var(--panel); border-bottom:1px solid var(--border); font-size:12.5px; color:var(--muted); flex-shrink:0; }
+#status-bar-2 .status-error { color:#d32f2f; }
+#status-bar-2 .status-warning { color:#f57c00; }
+#status-bar-2 .status-success { color:#388e3c; }
+#status-bar-2 .status-info { color:var(--muted); }
+/* ---- bottom status bar ---- */
+#status-bar { display:flex; align-items:center; gap:8px; padding:6px 14px; background:var(--panel); border-top:1px solid var(--border); font-size:12.5px; color:var(--muted); flex-shrink:0; }
+#status-bar .status-error { color:#d32f2f; }
+#status-bar .status-warning { color:#f57c00; }
+#status-bar .status-success { color:#388e3c; }
+#status-bar .status-info { color:var(--muted); }
+#status-bar .coverage { flex:1 1 0; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#status-bar .flex-spacer { flex:1 1 auto; }
+#status-bar .zoom-group { display:flex; align-items:center; gap:6px; flex:0 0 auto; }
+#status-bar button { border:none; border-radius:4px; padding:2px 8px; background:var(--panel); color:var(--fg); cursor:pointer; font-size:12.5px; white-space:nowrap; }
+#status-bar button:hover { background:var(--hover); }
+#status-bar button:focus { outline:none; box-shadow:0 0 0 2px var(--accent-soft); }
+#status-bar #zoom-label { flex:0 0 auto; min-width:2.4rem; text-align:center; color:var(--fg); font-weight:600; }
+/* Coloring mode button in toolbar */
+#toolbar #btn-coloring-mode { 
+  display: inline-flex; 
+  align-items: center; 
+  justify-content: center; 
+  width: 32px; 
+  height: 32px; 
+  padding: 0; 
+  border: none; 
+  color: var(--muted); 
+  cursor: pointer;
+
+  /* Target background properties individually to prevent overrides */
+  background-image: url('../assets/eyedropper.png'); /* Double check this path! */
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 20px 20px;  
+  background-color: transparent; 
+}
+
+#toolbar #btn-coloring-mode { border: 2px solid transparent; border-radius: 4px;}
+#toolbar #btn-coloring-mode[aria-pressed="true"] { border-color:var(--fg); }
+#toolbar #btn-coloring-mode[aria-pressed="false"]:hover { border-color: transparent; }
+/* Contextual tool strip. The height is fixed so that showing/hiding a tool group
+   never reflows the page: while the pointer is down a layout shift would move the
+   PDF canvas under the cursor and drag the region with it (spec §9). */
+#status-bar { display:flex; align-items:center; gap:8px; padding:6px 14px; background:var(--panel); border-top:1px solid var(--border); font-size:12.5px; color:var(--muted); flex-shrink:0; }
+#status-bar .coverage { flex:1 1 0; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#status-bar .flex-spacer { flex:1 1 auto; }
+#status-bar .zoom-group { display:flex; align-items:center; gap:6px; flex:0 0 auto; }
+#status-bar button { border:none; border-radius:4px; padding:2px 8px; background:var(--panel); color:var(--fg); cursor:pointer; font-size:12.5px; white-space:nowrap; }
+#status-bar button:hover { background:var(--hover); }
+#status-bar button:focus { outline:none; box-shadow:0 0 0 2px var(--accent-soft); }
+#status-bar #zoom-label { flex:0 0 auto; min-width:2.4rem; text-align:center; color:var(--fg); font-weight:600; }
 /* Contextual tool strip. The height is fixed so that showing/hiding a tool group
    never reflows the page: while the pointer is down a layout shift would move the
    PDF canvas under the cursor and drag the region with it (spec §9). */
@@ -67,23 +124,25 @@ body { margin:0; font:13px/1.4 system-ui,-apple-system,Segoe UI,sans-serif; back
 .mode-group button { border:none; border-radius:0; padding:3px 10px; background:var(--panel); color:var(--fg); font-size:12.5px; }
 .mode-group button + button { border-left:1px solid var(--border); }
 .mode-group button.active { background:var(--accent); color:#fff; }
-/* Workflow switcher: intent, not a mode. Two small buttons that stay visible so the user
-   can move between Translate and Improve without losing the map, variants or selection. */
-.lens-switcher { display:inline-flex; margin-left:8px; border:1px solid var(--border-strong); border-radius:4px; overflow:hidden; }
-.lens-switcher button { border:none; border-radius:0; padding:3px 11px; background:var(--panel); color:var(--fg); font-size:12.5px; }
-.lens-switcher button + button { border-left:1px solid var(--border); }
-.lens-switcher button.active { background:var(--accent); color:#fff; }
-body.lens-improve .lens-switcher button[data-lens="improve"] { background:#0f7b5f; border-color:#0f7b5f; }
-body.lens-improve .lens-switcher { border-color:#0f7b5f; }
-/* The translation controls belong to the Translate intent. Improve keeps the same region
-   tools but hides the target-language machinery; extraction/OCR lives in its menu and the
-   contextual "Make this selectable" button. */
-body.lens-improve #lbl-source-lang,
-body.lens-improve #btn-translate-page-text { display:none; }
-body.lens-translate #btn-make-selectable { display:none; }
-#toolbar .coverage { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:12px; margin-left:8px; }
-#toolbar .coverage:empty { display:none; }
-
+/* Eyedropper magnifier: follows the pointer while C-drag shows the colour under it. */
+#eyedropper-magnifier {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  width: 100px;
+  height: 100px;
+  margin-left: -50px;
+  margin-top: -50px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.45), 0 0 10px rgba(0,0,0,.35);
+  background: #000;
+  display: none;
+}
+#eyedropper-magnifier:not([hidden]) { display: block; }
+/* Coloring mode indicator: active when C has toggled eyedropper sampling in Region mode. */
+body.coloring-mode { cursor: crosshair; }
+body.coloring-mode #overlay { cursor: crosshair; }
 button, select, input, textarea { background:var(--panel); color:var(--fg); border:1px solid var(--border-strong); border-radius:4px; padding:3px 8px; font:inherit; }
 button { cursor:pointer; }
 button:not(:disabled):hover { background:#e9f0f9; border-color:#a9c6e8; }
@@ -136,7 +195,7 @@ select:focus, input:focus, textarea:focus { outline:2px solid var(--accent-soft)
 #overlay circle.handle.vertex-selected { fill:var(--accent); stroke:#fff; stroke-width:2.5; r:7; }
 #overlay text.rlabel { font:10px sans-serif; fill:#fff; fill-opacity:.6; paint-order:stroke; stroke:#000; stroke-opacity:.5; stroke-width:2px; pointer-events:none; }
 #overlay polygon.region.selected + text.rlabel { fill-opacity:.95; stroke-opacity:.8; }
-/* Source/selectability status tags (the lens menu or Shift+D). The semantic class
+/* Source/selectability status tags (Shift+D). The semantic class
    is the detector's, the status says whether the region already has digital content or is
    waiting for OCR. Ids stay visible when the tags are hidden. */
 #overlay text.rlabel .rtag { font-size:9px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; fill-opacity:1; }
@@ -184,7 +243,7 @@ body.mode-content #overlay polygon.region.selected { cursor:pointer; }
    It is deliberately not the box: the box's size is set on the page (its handles, or
    Resize to text / R), so the dialog never has to be large enough for the box, and the
    wrapping here is the dialog's own. It lives in the modal, never on the page. */
-.inline-edit { box-sizing:border-box; flex:1 1 auto; min-height:0; white-space:normal; word-wrap:break-word; overflow:auto; padding:8px 10px; margin:0; line-height:1.25; border:0; outline:1px solid var(--accent); border-radius:2px; background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.14); }
+.inline-edit { box-sizing:border-box; flex:1 1 auto; min-height:0; white-space:normal; word-wrap:break-word; overflow:auto; padding:8px 10px; margin:0; line-height:1.25; border:0; outline:1px solid var(--accent); border-radius:2px; background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.14); contain: layout style paint; }
 .inline-edit .rt-line:empty::after { content:'\200b'; }
 .inline-edit[hidden] { display:none; }
 /* block document: paragraphs, headings, lists, tables inside the text item */
@@ -251,6 +310,16 @@ body.mode-content #overlay polygon.region.selected { cursor:pointer; }
 #props .review-text { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
 #props .review-count { flex:0 0 auto; min-width:16px; padding:0 4px; border-radius:8px; background:#fff3d6; color:#8a5a00; border:1px solid #d97706; font-size:10px; text-align:center; }
 
+/* ---- Files panel (replaces old map-info line) ---- */
+#props .file-list { display:flex; flex-direction:column; gap:4px; margin-top:4px; }
+#props .file-row { display:flex; gap:8px; align-items:center; padding:4px 6px; border:1px solid var(--border); border-radius:4px; background:var(--panel-2); color:var(--fg); font-size:12px; }
+#props .file-kind { flex:0 0 auto; width:92px; font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+#props .file-kind.source { color:var(--fg); }           /* PDF: black, it is source */
+#props .file-kind.saved { color:var(--ok); }            /* green — auto-saved to IndexedDB */
+#props .file-kind.unsaved { color:#d97706; }            /* orange — not yet auto-saved */
+#props .file-name { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#props .file-detail { flex:0 0 auto; width:130px; font-size:10px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
 /* ---- tables (help) ---- */
 #help-modal .modal-box { width:min(920px,94vw); max-width:920px; }
 .help-table { width:100%; table-layout:fixed; border-collapse:collapse; margin:6px 0; font-size:12.5px; }
@@ -264,9 +333,9 @@ body.mode-content #overlay polygon.region.selected { cursor:pointer; }
 .about-box p { margin:8px 0; }
 
 /* ---- modals ---- */
-#picker-modal, #warn-modal, #settings-modal, #help-modal, #about-modal, #find-modal, #text-modal, #variant-modal, #choice-modal, #app-dialog { position:fixed; inset:0; background:rgba(0,0,0,.32); display:flex; align-items:center; justify-content:center; z-index:40; }
+#picker-modal, #warn-modal, #settings-modal, #help-modal, #about-modal, #find-modal, #text-modal, #variant-modal, #choice-modal, #app-dialog { position:fixed; inset:0; background:rgba(0,0,0,.32); display:flex; align-items:center; justify-content:center; z-index:40; contain: layout style paint; }
 #picker-modal[hidden], #warn-modal[hidden], #settings-modal[hidden], #help-modal[hidden], #about-modal[hidden], #find-modal[hidden], #text-modal[hidden], #variant-modal[hidden], #choice-modal[hidden], #app-dialog[hidden] { display:none; }
-.modal-box { background:var(--panel); border:1px solid var(--border-strong); padding:18px 20px; border-radius:8px; min-width:340px; max-width:640px; max-height:80vh; overflow:auto; box-shadow:0 12px 40px rgba(0,0,0,.3); }
+.modal-box { background:var(--panel); border:1px solid var(--border-strong); padding:18px 20px; border-radius:8px; min-width:340px; max-width:640px; max-height:80vh; overflow:auto; box-shadow:0 12px 40px rgba(0,0,0,.3); contain: layout style paint; }
 /* Re-detection conflict (§21): the two candidate polygons drawn over the page. */
 #choice-preview { display:block; width:100%; max-width:420px; height:auto; margin:10px 0 4px; background:#fff; border:1px solid var(--border-strong); border-radius:6px; }
 #choice-preview[hidden] { display:none; }
@@ -289,49 +358,302 @@ body.mode-content #overlay polygon.region.selected { cursor:pointer; }
 /* Text box dialog: header (title + the text tools), the free-form editor, actions.
    The dialog is resizable by the user (spec §9b) and is sized for *editing*: the text area
    fills it, and the box's own size is set on the page. */
-.text-box-modal { position:fixed; display:flex; flex-direction:column; width:min(680px,94vw); height:min(78vh,600px); min-width:280px; min-height:240px; max-width:96vw; max-height:92vh; overflow:auto; resize:both; cursor:default; }
-.tm-head { display:flex; flex-direction:column; gap:8px; padding-bottom:10px; margin-bottom:12px; border-bottom:1px solid var(--border); }
+.text-box-modal { position:fixed; display:flex; flex-direction:column; width:min(680px,94vw); height:min(78vh,600px); min-width:280px; min-height:240px; max-width:96vw; max-height:92vh; overflow:auto; resize:both; cursor:default; contain: layout style paint; }
+.tm-head { display:flex; flex-direction:column; align-items:center; justify-content:space-between; gap:8px; padding-bottom:10px; margin-bottom:12px; border-bottom:1px solid var(--border); min-width:0; overflow:hidden; }
+.tm-head-bar {display:flex;width:100%;justify-content: space-between;}
 .tm-title { display:flex; align-items:baseline; gap:8px; }
 .tm-title h3 { margin:0; }
 .tm-size { color:var(--muted); font-size:12px; }
-.tm-tools { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+#text-tools {display: flex;flex-direction: column; width: 100%;}
+#tm-fullscreen {display: flex; padding: 5px 5px; flex-shrink: 0; 
+  background-color: transparent;
+  color: #333333;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+}
+#tm-fullscreen.active { background: var(--accent); color: white; }
+
+/* Two-row toolbar layout */
+.tm-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #ffffff;
+  min-width: 0; /* Prevent flex items from overflowing */
+}
+
+/* Constrain toolbar rows to modal width */
+#toolbar-row-1,
+#toolbar-row-2 {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.tm-tools .tool-btn,
+.tm-tools .dropdown,
+.tm-tools .number-input {
+  background-color: transparent;
+  border: 1px solid #d1d1d1;
+  color: #333333;
+  border-radius: 4px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.tm-tools .tool-btn:hover,
+.tm-tools .dropdown:hover,
+.tm-tools .number-input:hover {
+  background-color: #f0f0f0;
+}
+
+.tm-tools .tool-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.tm-tools .tool-btn.wide {
+  width: auto;
+  padding: 0 8px;
+  gap: 4px;
+}
+
+/* Active state for direction buttons */
+.tm-tools .tool-btn.active {
+  background-color: #e0e0e0;
+  border-color: #999999;
+}
+
+/* Dropdowns */
+.tm-tools .dropdown {
+  padding: 0 8px 0 12px;
+  justify-content: space-between;
+  min-width: 130px;
+  background: #ffffff;
+  color: #333333;
+}
+
+.tm-tools .dropdown.font-family {
+  width: 160px;
+}
+
+.tm-tools .chevron {
+  width: 8px;
+  height: 8px;
+  fill: none;
+  stroke: #666666;
+  stroke-width: 2;
+  margin-left: 6px;
+}
+
+/* Number Inputs */
+.tm-tools .number-input {
+  width: 60px;
+  padding: 0 8px;
+  justify-content: space-between;
+  outline: none;
+  flex-shrink: 0;
+}
+
+.tm-tools .number-input span {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Background Color Picker */
+.tm-tools .bg-color-picker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Text Color Button - similar to bg-color-picker */
+.tm-tools .text-color-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  position: relative;
+}
+
+.tm-tools .text-color-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tm-tools .text-color-btn .letter {
+  font-family: serif;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1;
+  color: #111111; /* Default text color */
+  z-index: 1;
+}
+
+/* Show color on the letter itself */
+.tm-tools .text-color-btn .letter {
+  -webkit-text-fill-color: currentColor;
+  text-fill-color: currentColor;
+}
+
+/* Border Color Button (with swatch bar) */
+.tm-tools .border-color-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  width: auto; /* Override tool-btn fixed width */
+  flex-direction: column;
+}
+
+.tm-tools .border-color-btn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.tm-tools .swatch-bar {
+  width: 16px;
+  height: 4px;
+  border-radius: 2px;
+  border: 1px solid #d1d1d1;
+  background: #333333;
+  flex-shrink: 0;
+}
+
+/* Text Formatting (B I U) */
+.tm-tools .format-group {
+  display: flex;
+  gap: 2px;
+  padding: 0 6px;
+  height: 20px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.tm-tools .format-btn {
+  background: none;
+  border: none;
+  color: #333333;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  font-family: serif;
+  font-size: 15px;
+}
+
+.tm-tools .format-btn:hover {
+  background-color: #e0e0e0;
+  color: #000000;
+}
+
+/* Icons */
+.tm-tools .icon {
+  width: 16px;
+  height: 16px;
+  fill: #333333;
+  stroke: #333333;
+}
+
+.tm-tools .align-group {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0.
+}
+
 .tm-tools .tool-group { margin-left:0; padding-left:0; border-left:none; flex-wrap:wrap; row-gap:6px; }
+
+/* Hidden inputs for color pickers */
+.tm-tools input[type=color] { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
+
 .tm-tools .tool-group + .tool-group { border-left:1px solid var(--border); padding-left:8px; }
-/* ---- Ms Word-style formatting ribbon inside the text dialog ---- */
-.tm-tools .tool-group button {
-  min-width:24px; padding:4px 8px; border:1px solid transparent; border-radius:4px;
-  background:var(--panel); color:var(--fg); font:600 12.5px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:4px;
+
+/* Hidden inputs for color pickers */
+.tm-tools input[type=color] { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
+
+/* Active states */
+.tm-tools .tool-btn.active,
+.tm-tools .dropdown.active,
+.tm-tools .format-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
-.tm-tools .tool-group button:hover:not(.active) { background:var(--hover); border-color:var(--border); }
-.tm-tools .tool-group button:active:not(.active) { background:var(--accent-soft); }
-.tm-tools .tool-group button.active {
-  background:var(--accent); border-color:var(--accent); color:#fff;
-  box-shadow:inset 0 1px 2px rgba(0,0,0,.18);
-}
-.tm-tools .tool-group button i, .tm-tools .tool-group button u { font-style:normal; text-decoration:none; font-weight:700; }
-.tm-tools .tool-group .sep { width:1px; align-self:stretch; background:var(--border); margin:0 4px; }
-.tm-tools .tool-group label.inline { color:var(--muted); font-size:11.5px; font-weight:500; display:inline-flex; align-items:center; gap:4px; }
-.tm-tools .tool-group label.inline input[type=color] { border:none; border-radius:4px; width:22px; height:20px; padding:0; cursor:pointer; }
-.tm-tools .tool-group select {
-  border:1px solid var(--border); border-radius:4px; padding:1px 6px; background:var(--panel);
-  color:var(--fg); font:500 12px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; cursor:pointer; min-width:70px;
-}
-.tm-tools .tool-group select:hover { border-color:var(--border-strong); }
-.tm-tools .tool-group input[type=number] {
-  border:1px solid var(--border); border-radius:4px; padding:1px 5px; width:42px; background:var(--panel);
-  color:var(--fg); font:500 12px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-}
-.tm-tools .tool-group input[type=number]:hover { border-color:var(--border-strong); }
-/* Font color "A" shows its color as an underline, like Word */
-.tm-tools .tool-group label.inline::before { content:"A"; display:inline-block; font-weight:700; font-size:13px; color:var(--fg); margin-right:2px; }
-.tm-stage { flex:1 1 auto; min-height:80px; overflow:hidden; background:var(--panel-2); border:1px dashed var(--border-strong); border-radius:6px; padding:12px; display:flex; align-items:stretch; }
+.tm-stage { flex:1 1 auto; min-height:80px; overflow:auto; background:var(--panel-2); border:1px dashed var(--border-strong); border-radius:6px; padding:12px; display:flex; align-items:stretch; min-width:0; contain: layout style paint; }
 /* Reference crop of the page under the box, above the editor. Capped so it never
    crowds out the text being edited; the dialog itself stays resizable. */
-.tm-source { flex:0 0 auto; margin:0 0 10px; display:flex; flex-direction:column; align-items:center; gap:4px; }
+.tm-source { flex:0 0 auto; margin:0 0 10px; display:flex; flex-direction:column; align-items:center; gap:4px; position:relative; min-width:0; }
 .tm-source[hidden] { display:none; }
 .tm-source img { display:block; max-width:100%; max-height:150px; object-fit:contain; background:#fff; border:1px solid var(--border); border-radius:4px; }
-.tm-source-cap { color:var(--muted); font-size:11px; line-height:1.4; }
+.tm-source-wrap { position:relative; display:inline-block; min-width:0; }
+.tm-source-resize {
+  position:absolute; right:2px; bottom:2px; width:16px; height:16px; cursor:se-resize;
+  background:var(--accent); border:2px solid var(--panel); border-radius:3px; z-index:3;
+  opacity:0.8;
+}
+.tm-source-resize::before {
+  content:""; position:absolute; left:4px; top:4px; width:5px; height:5px;
+  border:2px solid #fff; border-top:none; border-left:none;
+}
+.tm-source-resize:hover { opacity:1; transform:scale(1.15); }
+.tm-source-resize:focus-visible { outline:2px solid var(--accent); outline-offset:1px; opacity:1; }
+.tm-source-resize:active { transform:scale(0.95); }
+
+/* Split pane layout for text editor dialog */
+.tm-split-pane { display:flex; flex:1 1 auto; min-height:200px; overflow:hidden; }
+.tm-source-pane { flex:0 0 40%; min-width:150px; max-width:60%; display:flex; flex-direction:column; overflow:hidden; }
+.tm-editor-pane { flex:1 1 auto; min-width:200px; display:flex; flex-direction:column; overflow:hidden; }
+.tm-stage { flex:1 1 auto; min-height:100%; overflow:auto; background:var(--panel-2); border:1px dashed var(--border-strong); border-radius:6px; padding:12px; display:flex; align-items:stretch; min-width:0; contain: layout style paint; }
+.tm-source { flex:0 0 auto; margin:0 0 10px; display:flex; flex-direction:column; align-items:center; gap:4px; position:relative; min-width:0; }
+.tm-source[hidden] { display:none; }
+.tm-source img { display:block; max-width:100%; max-height:100%; object-fit:contain; background:#fff; border:1px solid var(--border); border-radius:4px; }
+.tm-source-wrap { position:relative; display:inline-block; min-width:0; width:100%; }
+.tm-source-cap { color:var(--muted); font-size:11px; line-height:1.4; text-align:center; }
+
+/* Split handle between panes */
+.tm-split-handle { width:6px; flex:0 0 6px; cursor:col-resize; background:var(--border); position:relative; z-index:10; transition:background 0.2s; }
+.tm-split-handle:hover,
+.tm-split-handle.dragging { background:var(--accent); }
+.tm-split-handle::before {
+  content:""; position:absolute; left:50%; top:20%; bottom:20%; width:2px;
+  background:var(--muted); transform:translateX(-50%); border-radius:1px;
+}
+.tm-split-handle:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+
+/* Table move handle: grab the left edge of a table to reposition it horizontally */
+.rt-table-move-handle {
+  position: absolute;
+  left: -6px; top: 0; bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: var(--border);
+  z-index: 5;
+  transition: background 0.2s;
+}
+.rt-table-move-handle:hover,
+.rt-table-move-handle.dragging { background: var(--accent); }
+.rt-table-move-handle::before {
+  content:""; position:absolute; left:50%; top:40%; bottom:40%; width:2px;
+  background:var(--muted); transform:translateX(-50%); border-radius:1px;
+}
+
+.tm-source-cap { color:var(--muted); font-size:11px; line-height:1.4; text-align:center; }
 .tm-hint { color:var(--muted); font-size:12px; margin:10px 0 0; }
 #text-done { background:var(--accent); border-color:var(--accent); color:#fff; }
 #text-done:hover { background:#1d4ed8; }
@@ -476,8 +798,7 @@ body {
 #toolbar .coverage:empty { display: none; }
 #toolbar #status-progress progress { accent-color: var(--accent); }
 
-.mode-group,
-.lens-switcher {
+.mode-group {
   margin-left: 8px;
   padding: 2px;
   gap: 2px;
@@ -486,8 +807,7 @@ body {
   background: #f1f5f9;
   overflow: hidden;
 }
-.mode-group button,
-.lens-switcher button {
+.mode-group button {
   padding: 4px 10px;
   border: none;
   border-radius: 6px;
@@ -498,10 +818,8 @@ body {
   font-weight: 600;
   box-shadow: none;
 }
-.mode-group button + button,
-.lens-switcher button + button { border-left: none; }
-.mode-group button:not(:disabled):hover,
-.lens-switcher button:not(:disabled):hover {
+.mode-group button + button { border-left: none; }
+.mode-group button:not(:disabled):hover {
   background: rgba(255, 255, 255, .72);
   border-color: transparent;
   color: var(--fg);
@@ -511,18 +829,6 @@ body {
   background: #fff;
   color: var(--accent-dark);
   box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
-}
-.lens-switcher button.active {
-  background: var(--accent);
-  color: #fff;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, .28);
-}
-body.lens-improve .lens-switcher { border-color: #a7f3d0; }
-body.lens-improve .lens-switcher button[data-lens="improve"] {
-  background: var(--green);
-  border-color: var(--green);
-  color: #fff;
-  box-shadow: 0 2px 6px rgba(15, 123, 95, .24);
 }
 
 /* controls */
@@ -560,6 +866,22 @@ button:disabled { opacity: .45; }
   box-shadow: 0 4px 12px rgba(37, 99, 235, .28);
 }
 
+/* Link-style action inside a modal (e.g. "Import content variant…"). */
+.modal-box button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-dark);
+  text-decoration: underline;
+  font: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  text-align: left;
+  line-height: inherit;
+}
+.modal-box button.link:hover { color: var(--accent); text-decoration: underline; }
+.modal-box button.link:focus-visible { outline: 3px solid rgba(37, 99, 235, .16); outline-offset: 1px; }
+
 #tools-row {
   height: 38px;
   min-height: 38px;
@@ -576,7 +898,7 @@ button:disabled { opacity: .45; }
 }
 #tools-row .tool-group button { padding: 4px 9px; font-size: 12px; }
 #tools-row .tool-group label.inline { gap: 5px; color: var(--muted); font-size: 12px; }
-#tools-row .tool-group input[type=color] { width: 28px; height: 24px; border-radius: 6px; }
+#tools-row .tool-group input[type=color] { width: 26px; height: 26px; border-radius: 13px; }
 
 /* workspace */
 #layout { background: var(--bg); }
@@ -653,7 +975,7 @@ button:disabled { opacity: .45; }
 #picker-modal, #warn-modal, #settings-modal, #help-modal, #about-modal, #find-modal,
 #text-modal, #variant-modal, #choice-modal, #app-dialog {
   background: rgba(15, 23, 42, .48);
-  backdrop-filter: blur(6px);
+  /* backdrop-filter: blur(6px); - disabled for performance during drag/resize */
 }
 .modal-box {
   padding: 24px 26px;
@@ -665,8 +987,11 @@ button:disabled { opacity: .45; }
 .modal-box p { color: #465166; }
 .modal-box .hint { color: var(--muted); font-size: 12.5px; line-height: 1.55; }
 .modal-box .row { margin-top: 18px; gap: 10px; }
-.find-box { width: min(520px, 94vw); }
-.find-box #find-scope { margin: -2px 0 12px; }
+/* New content variant: same prominent, centred action row as the app dialog. */
+#variant-modal .modal-box { width: min(520px, 94vw); }
+#variant-modal .modal-box > .row:last-child { justify-content: center; gap: 12px; flex-wrap: wrap; }
+#variant-modal .modal-box > .row:last-child button { min-width: 100px; padding: 9px 18px; font-size: 13.5px; }
+.find-box { width: min(520px, 94vw); }.find-box #find-scope { margin: -2px 0 12px; }
 .find-box input[type="text"] { width: 100%; }
 .find-options { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 10px 0 4px; }
 .find-options label { color: #334155; }
@@ -674,7 +999,7 @@ button:disabled { opacity: .45; }
 .pref-tab { padding: 8px 12px; font-size: 13px; }
 .pref-tab.active { color: var(--accent-dark); border-bottom-color: var(--accent); }
 .tm-head { border-bottom-color: var(--border); }
-.tm-stage { border-radius: 8px; background: #f8fbff; }
+.tm-stage { border-radius: 8px; background: #f8fbff; contain: layout style paint; }
 #text-done { box-shadow: 0 2px 6px rgba(37, 99, 235, .24); }
 #text-done:hover { background: var(--accent-dark); }
 #choice-preview { border-radius: 8px; }
@@ -700,7 +1025,8 @@ button:disabled { opacity: .45; }
 .dialog-box .dialog-field select:focus,
 .dialog-box .dialog-field input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .dialog-box .dialog-error { margin: 10px 0 0; color: #b91c1c; font-size: 12.5px; font-weight: 600; }
-.dialog-box .dialog-buttons { margin-top: 18px; }
+.dialog-box .dialog-buttons { margin-top: 32px; padding: 0 26px; display:flex; gap:12px; justify-content:center; }
+.dialog-box .dialog-buttons button { min-width:100px; padding:9px 18px; font-size:13.5px; }
 
 /* ---- next-step guide (top of #props) ---- */
 #next-action {
@@ -748,3 +1074,79 @@ button:disabled { opacity: .45; }
 }
 .next-steps button:hover { color: #0f3fa8; }
 .next-steps li.current button:hover { color: #0f3fa8; }
+/* Coloring mode (eyedropper) toggle: border shows only when color mode is on. */
+#toolbar #btn-coloring-mode { border: 1px solid transparent; }
+#toolbar #btn-coloring-mode[hidden] { display: none; }
+#toolbar #btn-coloring-mode[aria-pressed="true"] { border-color: var(--accent); }
+/* Layout container */
+.color-picker-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: sans-serif;
+}
+
+/* The circular color input */
+#f-bg {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.15); /* Light border so #ffffff is visible */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* Subtle shadow for depth */
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+  background: none;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+/* Hover & Focus effects */
+#f-bg:hover {
+  transform: scale(1.05);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+}
+
+#f-bg:focus-visible {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+}
+
+/* Chrome, Chromium Edge, and Safari */
+#f-bg::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+#f-bg::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+/* Firefox */
+#f-bg::-moz-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+/* Label & Keyboard shortcut hint style */
+.color-picker-label {
+  font-size: 14px;
+  color: #333333;
+  cursor: pointer;
+  user-select: none;
+}
+
+.color-picker-label kbd {
+  background-color: #f0f0f0;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.2);
+  color: #555;
+  display: inline-block;
+  font-size: 11px;
+  font-family: monospace;
+  line-height: 1.4;
+  padding: 1px 5px;
+  margin-left: 4px;
+}
