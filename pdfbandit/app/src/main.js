@@ -1350,6 +1350,11 @@ async function openProject(file) {
 }
 
 async function loadPdfFile(file) {
+  // Close any already-open PDF first so its region map, content variant, and
+  // per-document state don't leak into the newly opened document. Prompts about
+  // unsaved changes via confirmUnloadProject() inside closePdf().
+  if (viewer.doc) { await closePdf(); }
+
   const buf = await file.arrayBuffer();
   appState.pdfName = file.name;
   setStatus('Hashing PDF…');
