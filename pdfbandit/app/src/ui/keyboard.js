@@ -3,11 +3,12 @@ import { appState, els, viewer } from '../app.js';
 import {
   inRegion, inContent, isEditMode, contentIsImprove,
   openFindReplace, exportProjectPart, selectAll, armPolygon,
-  cycleMode, toggleOverlay, addTextItem, toggleLockSelected,
+  cycleMode, exitView, toggleOverlay, toggleRegionInfo, addTextItem, toggleLockSelected,
   toggleDigitalVersion, selectTextRegionsWithoutContent,
   detectRegionsOnPage, resizeAllTextInPage,
   ensureContentFile, translateFromPageText, extractSelectedContent,
-  commitInlineEditor, closeFindReplace, currentRegion, regionById
+  commitInlineEditor, closeFindReplace, currentRegion, regionById, openFilePicker,
+  enterView
 } from '../main.js';
 import { backgroundButtonVisible, openBackgroundPicker, toggleColoringMode } from '../editor/background.js';
 
@@ -35,14 +36,20 @@ export function initKeyboardShortcuts() {
       if (e.key === 'Escape') { e.preventDefault(); closeFindReplace(); }
       return;
     }
+    // A transient View (Preview / Original) is dismissed with Escape. The workspace, page,
+    // zoom, scroll and selection are untouched by entering or leaving it.
+    if (e.key === 'Escape' && appState.viewing) { e.preventDefault(); exitView(); return; }
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 'f' && appState.pmap && appState.content) { e.preventDefault(); openFindReplace(); }
-    else if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); els.filePdf.click(); }
+    else if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); openFilePicker(els.filePdf); }
     else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); if (appState.pmap) exportProjectPart('both'); }
     else if (mod && e.key.toLowerCase() === 'a' && appState.pmap && (inRegion() || inContent())) { e.preventDefault(); selectAll(); }
     else if (e.key === 'Tab') { e.preventDefault(); cycleMode(e.shiftKey); }
     else if (e.key === '0') toggleOverlay();
-    else if ((e.key === 'p' || e.key === 'P') && inRegion() && !mod && !e.altKey) { e.preventDefault(); armPolygon(); }
+    else if (e.shiftKey && !mod && !e.altKey && e.key.toLowerCase() === 'p' && viewer.doc) { e.preventDefault(); enterView('preview'); }
+    else if (e.shiftKey && !mod && !e.altKey && e.key.toLowerCase() === 'o' && viewer.doc) { e.preventDefault(); enterView('original'); }
+    else if (e.shiftKey && !mod && !e.altKey && e.key.toLowerCase() === 'i' && viewer.doc) { e.preventDefault(); toggleRegionInfo(); }
+    else if ((e.key === 'p' || e.key === 'P') && inRegion() && !mod && !e.altKey && !e.shiftKey) { e.preventDefault(); armPolygon(); }
     else if (e.shiftKey && !mod && !e.altKey && e.key.toLowerCase() === 't' && appState.pmap && appState.selected.size > 0) {
       e.preventDefault();
       const ids = [...appState.selected];
@@ -52,7 +59,7 @@ export function initKeyboardShortcuts() {
       if (!appState.selected.size) return;
       if (contentIsImprove()) extractSelectedContent(); else translateFromPageText();
     }
-    else if ((e.key === 'i' || e.key === 'I') && !mod && !e.altKey && backgroundButtonVisible()) { e.preventDefault(); openBackgroundPicker(); }
+    else if ((e.key === 'i' || e.key === 'I') && !mod && !e.altKey && !e.shiftKey && backgroundButtonVisible()) { e.preventDefault(); openBackgroundPicker(); }
     else if ((e.key === 't' || e.key === 'T') && !e.shiftKey && inContent() && currentRegion()) { e.preventDefault(); addTextItem(); }
     else if ((e.key === 'l' || e.key === 'L') && isEditMode() && !mod && !e.altKey) { e.preventDefault(); toggleLockSelected(); }
     else if (e.shiftKey && !mod && !e.altKey && e.key.toLowerCase() === 'd' && viewer.doc) { e.preventDefault(); toggleDigitalVersion(); }

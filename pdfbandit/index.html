@@ -44,18 +44,7 @@
       <div class="hero-note">No rebuilding. No rewriting the original. Just better patches.</div>
     </div>
     <div class="manual-stage" aria-label="Illustration of English translation patches placed over a Japanese product manual">
-      <div class="manual">
-        <div class="jp-title">ユーザーマニュアル</div>
-        <div class="jp-sub">&#x5236;&#x54c1;&#x306e;&#x4f7f;&#x3044;&#x65b9;</div>
-        <div class="rule"></div>
-        <div class="manual-content">
-          <div><div class="camera">&#x1f4f7;</div><div class="faint-lines"></div></div>
-          <div><div class="jp-lines">&#x6e96;&#x5099;<br>1. &#x30d0;&#x30c3;&#x30c6;&#x30ea;&#x3092;&#x5165;&#x308c;&#x307e;&#x3059;<br>2. &#x96fb;&#x6e90;&#x3092;&#x5165;&#x308c;&#x307e;&#x3059;</div><div class="diagram">&#x2667;</div></div>
-        </div>
-        <div class="faint-lines" style="width:70%;margin-top:14px"></div>
-        <div class="patch one"><i class="tape"></i><strong>User Manual</strong><span>How to Use Your Product</span></div>
-        <div class="patch two"><strong>Getting Started</strong><span>First steps &#38; setup</span></div>
-      </div>
+      <img src="./assets/hero.png" alt="English translation patches placed over a Japanese product manual">
       <div class="floating-tag">Editable overlays &#183; Original preserved</div>
     </div>
   </section>
@@ -71,38 +60,28 @@
         <div class="step-number">1</div>
         <h3>Find the text</h3>
         <p>Identify the text blocks you want to translate. Let PDFBandit detect them or draw the regions yourself.</p>
-        <div class="mini">
-          <div class="mini-page">
-            <div class="mini-lines"></div>
-            <div class="mini-lines" style="width:75%"></div>
-            <div class="highlight">&#x307f;&#x3058;&#x3081;&#x306b;</div>
-            <div class="mini-lines"></div>
-            <div class="mini-lines" style="width:80%"></div>
-          </div>
-        </div>
+        <div class="mini"><img src="./assets/regions.png" alt="Detected text regions on the page"></div>
       </article>
       <article class="step">
         <div class="step-number">2</div>
         <h3>Print your patches</h3>
         <p>Translate the text or recognize it with OCR, then render the result inside each patch.</p>
-        <div class="mini"><div class="mini-patch">Introduction</div></div>
+        <div class="mini"><img src="./assets/patches.png" alt="Editable translation patch"></div>
       </article>
       <article class="step">
         <div class="step-number">3</div>
         <h3>Match the paper</h3>
         <p>Sample the page background to make your patches blend naturally into the original document.</p>
-        <div class="mini"><div class="dropper">&#x2321;</div></div>
+        <div class="mini"><img src="./assets/translated.png" alt="Eyedropper matching page background"></div>
       </article>
       <article class="step">
         <div class="step-number">4</div>
         <h3>Export your copy</h3>
         <p>Your translated document is ready. The original PDF remains untouched, and every patch can still be edited.</p>
-        <div class="mini">
-          <div class="mini-docs">
-            <div class="mini-doc">&#x30e6;&#x30fc;&#x30b6;&#x30e1;&#x30cb;&#x30e5;&#x30a2;&#x30eb;<hr>&#x25a4; &#x25a4;</div>
-            <span>&#8594;</span>
-            <div class="mini-doc"><b>User Manual</b>&#x25a4; &#x25a4;</div>
-          </div>
+        <div class="mini before-after">
+          <img src="./assets/original.png" alt="Original PDF">
+          <span>→</span>
+          <img src="./assets/translated.png" alt="Translated PDF copy">
         </div>
       </article>
     </div>
@@ -152,21 +131,17 @@
         <div class="equation">
           <div>
             <div class="eq-label">ORIGINAL PDF</div>
-            <div class="eq-card">
-              <div class="tiny-page">&#x30e6;&#x30fc;&#x30b6;&#x30e1;&#x30cb;&#x30e5;&#x30a2;&#x30eb;<span class="tiny-camera">&#x1f4f7;</span><div class="mini-lines"></div><div class="mini-lines"></div></div>
-            </div>
+            <div class="eq-card"><img src="./assets/original.png" alt="Original PDF"></div>
           </div>
           <div class="operator">&#43;</div>
           <div>
             <div class="eq-label">EDITABLE PATCH</div>
-            <div class="eq-card patch-card">User Manual<br><small style="font:10px var(--sans)">How to Use Your Product</small></div>
+            <div class="eq-card"><img src="./assets/patches.png" alt="Editable patch"></div>
           </div>
           <div class="operator">&#61;</div>
           <div>
             <div class="eq-label">PATCHED COPY</div>
-            <div class="eq-card">
-              <div class="tiny-page"><b>User Manual</b><span class="tiny-camera">&#x1f4f7;</span><div class="mini-lines"></div><div class="mini-lines"></div></div>
-            </div>
+            <div class="eq-card"><img src="./assets/translated.png" alt="Translated copy"></div>
           </div>
         </div>
       </div>
@@ -206,7 +181,7 @@
   <div class="wrap footer-main">
     <div class="footer-brand">
       <a class="brand" href="./index.html">
-        <img class="brand-icon" src="./assets/icon.png" alt="" width="43" height="43" />
+        <img class="brand-icon" src="./assets/icon-light.png" alt="" width="43" height="43" />
         <span><strong>PDFBandit</strong><small>Translate the words. Keep the document.</small></span>
       </a>
       <p>Translate the words. Keep the document.</p>

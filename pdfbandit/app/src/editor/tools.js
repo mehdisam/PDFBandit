@@ -22,6 +22,11 @@ export class ToolController {
 
   onBackground(e) {
     if (!this.ctx.editing) return;
+    // The empty-state card lives inside #stage-wrap (so it can be centred over the page),
+    // but it is chrome, not page background: a press there must not start a marquee. Starting
+    // one re-renders the card, replacing the button between pointerdown and pointerup — the
+    // click never completes, which is exactly why "Open PDF" in the empty state did nothing.
+    if (e.target.closest?.('.workspace-empty, #workspace-empty, .modal, [role="dialog"]')) return;
     const { tool } = this.ctx;
     if (e.button === 1 || e.button === 2) return; // middle = pan, right = context menu
     if (e.target.closest?.('.region, .handle, .item-box, .item-handle, .inline-edit')) return; // safety; these normally stopPropagation

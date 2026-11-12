@@ -6,4 +6,6 @@ pdfbandit/app/__vendor
 pdfbandit/app/__sess_*.html
 pdfbandit/app/__app.html
 pdfbandit/app/tools
+pdfbandit/app/package.json
 package.json
+.wrangler

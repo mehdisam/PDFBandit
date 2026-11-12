@@ -1,6 +1,6 @@
 {
   "name": "pdfbandit-repo",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "description": "PDFBandit — Fix/Translate PDFs, your way.",
   "private": true,
   "homepage": "https://github.com/mehdisam/PDFBandit",

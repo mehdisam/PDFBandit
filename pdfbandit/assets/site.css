@@ -162,13 +162,21 @@ nav a:focus-visible{
 
 /* ---- hero ------------------------------------------------------------- */
 .hero{
-  min-height:570px;
+  min-height:512px;
   display:grid;
   grid-template-columns:.92fr 1.08fr;
   align-items:center;
   gap:26px;
   padding:44px 0 65px;
   position:relative;
+}
+.hero .manual-stage img{
+  max-width:100%;
+  max-height:100%;
+  width:auto;
+  height:auto;
+  object-fit:contain;
+  border-radius:24px;
 }
 .eyebrow{
   font-size:11px;
@@ -200,11 +208,12 @@ h1{
 
 /* Paper manual illustration */
 .manual-stage{
-  height:470px;
+  height:512px;
   position:relative;
   display:grid;
   place-items:center;
   perspective:1000px;
+  overflow:hidden;
 }
 .manual{
   width:min(490px,100%);
@@ -334,7 +343,7 @@ h2{
   font-size:13px;
   color:#4e5868;
   line-height:1.55;
-  min-height:60px;
+  min-height:80px;
 }
 .mini{
   height:100px;
@@ -342,6 +351,32 @@ h2{
   place-items:center;
   margin-top:10px;
   position:relative;
+  overflow:hidden;
+}
+.mini img{
+  width:100px;
+  height:100px;
+  object-fit:contain;
+  border-radius:14px;
+  box-shadow:0 6px 16px rgba(27,35,48,.12);
+}
+.mini.before-after img{
+  width:70px;
+  height:70px;
+  object-fit:contain;
+  border-radius:10px;
+}
+.mini.before-after{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+}
+.mini.before-after span{
+  color:var(--muted);
+  font-weight:800;
+  font-size:14px;
+  line-height:1;
 }
 .mini-page{
   width:125px;
@@ -454,13 +489,16 @@ h2{
   margin-bottom:8px;
 }
 .eq-card{
-  height:125px;
-  background:#fff;
-  border:1px solid #d8dfe7;
-  box-shadow:0 8px 14px rgba(27,38,53,.1);
-  padding:12px;
+  height:100px;
   display:grid;
   place-items:center;
+}
+.eq-card img{
+  width:100px;
+  height:100px;
+  object-fit:contain;
+  border-radius:16px;
+  box-shadow:0 8px 20px rgba(27,38,53,.12);
 }
 .eq-card .tiny-page{
   width:100%;
@@ -472,14 +510,10 @@ h2{
 }
 .tiny-camera{font-size:35px;display:block;text-align:center;margin:6px}
 .eq-card.patch-card{
-  height:80px;
-  font:700 16px var(--serif);
-  transform:rotate(-3deg);
+  height:125px;
 }
 .eq-card.patch-card small{
-  display:block;
-  font:10px var(--sans);
-  margin-top:2px;
+  display:none;
 }
 .operator{
   font-size:25px;
@@ -626,7 +660,6 @@ h2{
   .hero{grid-template-columns:1fr;padding-top:45px}
   .hero-copy{text-align:center}
   .hero-copy>p{margin-left:auto;margin-right:auto}
-  .manual-stage{height:430px}
   .steps{grid-template-columns:repeat(2,1fr)}
   .feature-grid{grid-template-columns:1fr;gap:25px}
   .feature-list{
@@ -648,7 +681,7 @@ h2{
     flex-wrap:wrap;
   }
 }
-@media (max-width: 560px){
+@media (max-width: 512px){
   .wrap{width:min(100% - 34px,1160px)}
   .site-header{height:70px}
   .nav-toggle{display:block}
@@ -694,7 +727,6 @@ h2{
   h1{font-size:43px}
   .hero-copy>p{font-size:15px}
   .manual-stage{
-    height:350px;
     transform:scale(.91);
     transform-origin:top center;
     margin-bottom:-25px;
@@ -708,7 +740,6 @@ h2{
   .steps{grid-template-columns:1fr}
   .step{min-height:245px}
   .step p{min-height:0}
-  .mini{height:90px}
   .feature-list{display:block}
   .promise{padding:25px 20px}
   .promise h2{font-size:27px}

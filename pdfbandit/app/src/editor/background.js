@@ -7,7 +7,7 @@ import { touch, rerender, setStatus, selectedRegions, regionById, detectionSnaps
 // ---- coloring mode: press C in Region mode to toggle eyedropper background sampling ----
 
 export function toggleColoringMode() {
-  if (!appState.mode === 'region') return;
+  if (appState.mode !== 'region') return;
   appState.coloringMode = !appState.coloringMode;
   document.body.classList.toggle('coloring-mode', appState.coloringMode);
   if (els.btnColoringMode) els.btnColoringMode.setAttribute('aria-pressed', String(appState.coloringMode));

@@ -6,6 +6,20 @@ import * as pdfjs from 'pdfjs-dist';
 pdfjs.GlobalWorkerOptions.workerSrc =
   'https://esm.sh/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
 pdfjs.GlobalWorkerOptions.workerPort = null; // Use default message channel
+// CJK (Japanese/Chinese/Korean) PDFs embed fonts that reference external CMaps.
+// Without these, CJK glyphs never resolve: the page renders blank and the text
+// layer loses every CJK character. The packed CMaps are served locally from
+// assets/cmaps/ so there is no external CDN dependency or worker CORS issue.
+// Read from window globals (set in index.html before pdf.js loads, so they reach
+// the worker thread) and also set GlobalWorkerOptions for the main thread.
+const cMapUrl = typeof window !== 'undefined' && window.pdfjsCMapUrl
+  ? window.pdfjsCMapUrl
+  : new URL('../../assets/cmaps/', import.meta.url).href;
+pdfjs.GlobalWorkerOptions.cMapUrl = cMapUrl;
+pdfjs.GlobalWorkerOptions.cMapPacked =
+  typeof window !== 'undefined' && window.pdfjsCMapPacked !== undefined
+    ? window.pdfjsCMapPacked
+    : true;
 // pdfjs.verbosity = 0; // verbosity is read-only in newer versions
 
 export class PdfViewer {
@@ -45,7 +59,7 @@ export class PdfViewer {
   async load(arrayBuffer) {
     if (this.doc) { try { await this.doc.destroy(); } catch {} }
     const buf = arrayBuffer.slice(0);
-    this.doc = await pdfjs.getDocument({ data: buf }).promise;
+    this.doc = await pdfjs.getDocument({ data: buf, cMapUrl }).promise;
     this.pageCount = this.doc.numPages;
     this.baseSizes.clear();
     this.fontMaps.clear();

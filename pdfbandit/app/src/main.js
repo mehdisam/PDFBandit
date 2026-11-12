@@ -25,8 +25,10 @@ import { extractRegionContent, isAwaitingOcr } from './services/extract.js';
 import { makeTranslationService, translationProviders, isLibreTranslateProvider, endpointForProvider, countWords, DEFAULT_PROVIDER, DEFAULT_INSTANCE_URL } from './services/index.js';
 import { chromeAiStatus, chromeAiAvailability, cancelChromeAiDownload, isChromeAiLanguage } from './services/translate_chromeai.js';
 import { createMenubar } from './ui/menubar.js';
+import { createDropdown } from './ui/dropdown.js';
 import { appDialog, confirmDialog, promptValue, promptSelect } from './ui/dialog.js';
-import { mainMenuItems } from './ui/menu.js';
+import { openJobDialog } from './ui/progress.js';
+import { mainMenuItems, viewMenuItems, variantMenuItems, exportMenuItems, regionMoreMenuItems } from './ui/menu.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -58,20 +60,21 @@ export { history } from './app.js';
 // These are defined in main.js - re-export for background.js, menu.js, keyboard.js, find-replace.js
 export { detectionSnapshot, restoreDetection, regionById, selectedRegions, regionsUnderPoint, stagePdfPoint };
 export { saveProjectNow };
-export { armPolygon, closePdf, newRegionFile, exportProjectPart, promptNewContentVariant, openSettings };
+export { armPolygon, closePdf, newRegionFile, exportProjectPart, promptNewContentVariant, promptSwitchContentVariant, openSettings };
 export { selectAll, toggleLockSelected, mergeSelected, resizeAllTextInPage, deleteSelection, startSplit };
 export { detectRegionsOnPage, detectRegionsAllPages, toggleDetectExtract, detectExtract };
 export { extractSelectedContent, translateFromPageText, toggleDigitalVersion, selectTextRegionsWithoutContent };
-export { setMode, toggleOverlay, setZoom, fitZoom, openHelp, openAbout, openFindReplace, closeFindReplace, commitInlineEditor, cycleMode, ensureContentFile };
+export { setMode, setWorkspace, enterView, exitView, toggleOverlay, toggleRegionInfo, setZoom, fitZoom, openHelp, openAbout, openFindReplace, closeFindReplace, commitInlineEditor, cycleMode, ensureContentFile };
 export { contentIsImprove, pageTextItemCount, inRegion, inContent, isEditMode, gotoPage, gotoPagePrompt, currentRegion, currentRegions };
 export { addTextItem };
+export { switchContentVariant };
+export { doExport, doExportDigital };
 export { langLabel, digitalSourceState, touchMap as touch, refreshChrome };
 export { workflowCopy, sourceLangValue, textPadding, detectOverlap, detectTier, cvEngine, ocrEngine, ocrEnabled };
 export { defaultFont, defaultSize, defaultLineHeight };
 export { clampPadding, clampDetectOverlap, clampDetectTier, clampCvEngine, clampOcrEngine };
 export { loadSettings, saveSettings, setEndpointFor };
 export { translationProviders };
-export { doExport };
 export function rerender() { renderCurrent(); }
 export function setStatus(t, type = 'info') {
   const toolbarStatus = els.status;
@@ -288,6 +291,18 @@ let lastItemClick = null;   // { id, idx, t }
 // In Content mode (spec §9a) the polygon is a read-only outline: a press only *selects* the
 // region (so the user can pick the one that receives new items), and Alt is the documented
 // exception that also makes the region movable — the one geometry gesture left in this mode.
+// The topmost text/image item of a region under a PDF-space point. Items paint in array
+// order, so the last match is the one the pointer would hit.
+function topItemAt(region, p) {
+  const items = region?.content?.items || [];
+  const pts = regionPoints(region.geometry);
+  for (let i = items.length - 1; i >= 0; i--) {
+    const [x, y, w, h] = itemAbsBox(pts, items[i]);
+    if (p[0] >= x && p[0] <= x + w && p[1] >= y && p[1] <= y + h) return i;
+  }
+  return -1;
+}
+
 function regionPointerDown(e, id) {
   if (!isEditMode()) return;
   // Coloring mode (toggled with C in Region mode): dragging inside a region samples
@@ -312,11 +327,24 @@ function regionPointerDown(e, id) {
   if (inContent()) {
     lastRegionClick = null;
     appState.selectedVertex = null;
+    // Ordinary clicks prioritize content: if a text/image item sits under the pointer,
+    // select the region and that item instead of treating the press as a region pick.
+    // Alt is the documented "the region, not the item" fallback.
+    const hit = e.altKey ? -1 : topItemAt(r, p);
+    if (hit >= 0) {
+      if (!appState.selected.has(id)) { appState.selected.clear(); appState.selected.add(id); }
+      appState.itemSelected = true;
+      appState.itemIndex = hit;
+      clearItemSelection();
+      tools.startItemDrag(e, id, hit);
+      rerender();
+      return;
+    }
     appState.itemSelected = false; clearItemSelection();
     if (e.shiftKey) toggleSelect(id);
     else if (!appState.selected.has(id)) selectSingle(id);
     if (e.altKey) {
-      if (isRegionLocked(r)) setStatus(`${r.id} is locked — press L in Region mode to unlock it.`);
+      if (isRegionLocked(r)) setStatus(`${r.id} is locked — press L to unlock it (or open Edit regions).`);
       else tools.startRegionDrag(e, id); // one undo step, exactly like a Region-mode move
     }
     rerender();
@@ -410,6 +438,7 @@ const overlay = new Overlay(els.svg, {
     appState.itemIndex = index;
     appState.itemSelected = true; clearItemSelection();
     tools.startItemDrag(e, id, index);
+    rerender();
   },
   onItemHandlePointerDown(e, id, index, corner) {
     e.stopPropagation();
@@ -597,7 +626,76 @@ fillSettingsFields();
 $('btn-zoom-in').onclick = () => setZoom(appState.zoom * 1.2);
 $('btn-zoom-out').onclick = () => setZoom(appState.zoom / 1.2);
 $('btn-zoom-fit').onclick = fitZoom;
-for (const b of document.querySelectorAll('#mode-group button')) b.onclick = () => setMode(b.dataset.mode);
+
+// ---- app bar: identity, workspaces, viewing, variants, history, export ---------------
+// The workspace tabs are the persistent editor surface. Viewing (Preview / Original) is
+// transient and never moves the tabs; returning restores the same workspace and selection.
+for (const b of document.querySelectorAll('#workspace-switch .workspace-tab')) {
+  b.onclick = () => setWorkspace(b.dataset.workspace);
+}
+if (els.btnOpenPdf) els.btnOpenPdf.onclick = () => openFilePicker(els.filePdf);
+if (els.btnClosePdf) els.btnClosePdf.onclick = () => closePdf();
+if (els.btnNewVariant) els.btnNewVariant.onclick = () => promptNewContentVariant();
+if (els.btnUndo) els.btnUndo.onclick = () => history.undo();
+if (els.btnRedo) els.btnRedo.onclick = () => history.redo();
+if (els.btnExport) els.btnExport.onclick = () => exportProjectPart('both');
+
+// Contextual tool strips (Content / Edit regions).
+if (els.btnTranslateWorkflow) els.btnTranslateWorkflow.onclick = () => contentWorkflowAction();
+if (els.btnContentFind) els.btnContentFind.onclick = () => openFindReplace();
+if (els.btnDetectRegions) els.btnDetectRegions.onclick = () => detectRegionsOnPage();
+if (els.btnDrawRegion) els.btnDrawRegion.onclick = () => armPolygon();
+if (els.btnLockRegionQuick) els.btnLockRegionQuick.onclick = () => toggleLockSelected();
+if (els.btnRegionOpenContent) els.btnRegionOpenContent.onclick = () => {
+  const r = currentRegion();
+  setWorkspace('content');
+  if (r) { appState.selected = new Set([r.id]); appState.itemSelected = false; clearItemSelection(); rerender(); }
+  refreshChrome();
+};
+
+// Files section: the separate on-disk halves and their exports.
+if (els.mapEdit) els.mapEdit.onclick = () => setWorkspace('region');
+if (els.mapLoad) els.mapLoad.onclick = () => openFilePicker(els.filePmap);
+if (els.mapNew) els.mapNew.onclick = () => newRegionFile();
+if (els.mapExport) els.mapExport.onclick = () => exportProjectPart('map');
+if (els.contentSwitch) els.contentSwitch.onclick = () => promptSwitchContentVariant();
+if (els.contentLoad) els.contentLoad.onclick = () => openFilePicker(els.fileContentVariant);
+if (els.contentNew) els.contentNew.onclick = () => promptNewContentVariant();
+if (els.contentExport) els.contentExport.onclick = () => exportProjectPart('content');
+
+// Object picker: an explicit way to reach a region when text/image boxes overlap it. The
+// page click path prioritises items in Content; this picker is the intentional fallback.
+if (els.objectPicker) {
+  els.objectPicker.onchange = () => {
+    const m = /^(region|item):([^:]+)(?::(\d+))?$/.exec(els.objectPicker.value || '');
+    if (!m) return;
+    const [, kind, id, idxText] = m;
+    const r = regionById(id);
+    if (!r) return;
+    appState.selected = new Set([id]);
+    appState.selectedVertex = null;
+    if (kind === 'item') {
+      const idx = Number(idxText);
+      const items = r.content?.items || [];
+      appState.itemIndex = Number.isFinite(idx) && idx >= 0 && idx < items.length ? idx : 0;
+      appState.itemSelected = true;
+    } else {
+      appState.itemSelected = false;
+      clearItemSelection();
+    }
+    rerender();
+    syncPropsForm();
+    refreshContextTools();
+  };
+}
+
+// App-bar dropdowns. Each panel rebuilds its items on open, so enabled/checked state is
+// always current.
+createDropdown(els.btnViewMenu, els.viewMenu, viewMenuItems);
+createDropdown(els.btnVariantMenu, els.variantMenu, variantMenuItems, { align: 'right' });
+createDropdown(els.btnExportMore, els.exportMenu, exportMenuItems, { align: 'right' });
+createDropdown(els.btnRegionMoreMenu, els.regionMoreMenu, regionMoreMenuItems);
+
 refreshModeIndicator();
 $('btn-crop-img').onclick = cropImageForSelected;
 $('btn-lock-region').onclick = () => toggleLockSelected();
@@ -608,10 +706,21 @@ $('btn-item-fit-text').onclick = () => { if (selectedItem()) resizeItemToText(cu
 $('btn-item-front').onclick = () => moveItemTo('front');
 $('btn-item-back').onclick = () => moveItemTo('back');
 $('btn-item-delete').onclick = () => { if (selectedItem()) deleteItem(); };
-els.filePdf.onchange = (e) => openFileList([...e.target.files]);
+els.filePdf.onchange = (e) => { const fs = [...e.target.files]; e.target.value = ''; openFileList(fs); };
 els.filePmap.onchange = (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) openFileList(fs); };
 els.fileContentVariant.onchange = async (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) { await openContentFile(fs[0]); } };
 els.fileItemImage.onchange = async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) await addImageFromSource(await readFileDataUrl(f)); };
+
+// Open a file picker for one of the hidden inputs. The inputs stay rendered (off-screen)
+// because Safari refuses to open a picker from a display:none input. showPicker() is the
+// modern path; click() is the fallback for browsers that do not implement it.
+export function openFilePicker(input) {
+  if (!input) return;
+  try {
+    if (typeof input.showPicker === 'function') { input.showPicker(); return; }
+  } catch { /* showPicker refused (activation, unsupported) — fall back to click() */ }
+  input.click();
+}
 
 function readFileDataUrl(file) {
   return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(fr.error); fr.readAsDataURL(file); });
@@ -847,6 +956,27 @@ function rememberVariant(c) {
   if (hit) hit.content = c;
   else appState.variants.push({ key, content: c, saved: canonical(c) });
 }
+
+// Patch backgrounds live in content entries, not in the structure-only .pmap (the format
+// is fixed). When a new variant is created in-session we carry the colours visible in the
+// current merged project into it, so creating a variant does not look like it reset them.
+function currentPatchBackgrounds() {
+  const out = new Map();
+  for (const p of appState.pmap?.pages || []) {
+    for (const r of p.regions || []) {
+      const bg = r.content?.background;
+      if (bg && bg !== DEFAULT_BACKGROUND) out.set(r.id, bg);
+    }
+  }
+  return out;
+}
+function applyPatchBackgrounds(variant, backgrounds) {
+  if (!variant || !backgrounds?.size) return;
+  for (const [id, bg] of backgrounds) {
+    const entry = variant.regions[id] || (variant.regions[id] = { background: DEFAULT_BACKGROUND, items: [] });
+    entry.background = bg;
+  }
+}
 // A variant is the source-text variant of a language when it is an *improve* variant of
 // that language (source === destination, spec 1.7 §7.2). A translate variant also carries
 // the PDF's language as its source, but its entries hold the translation, so it must never
@@ -947,6 +1077,11 @@ function installProject(map, content) {
   rememberVariant(resolved.content);
   appState.savedMap = null;
   appState.dirtySides = { map: false, content: false };
+  // A map exists now, so Content is the intended default surface. Loading a different
+  // map/variant also ends any transient View so the user lands somewhere editable.
+  appState.workspace = 'content';
+  appState.viewing = null;
+  syncModeFromState();
   return resolved;
 }
 
@@ -971,9 +1106,13 @@ function installMapOnly(map) {
   appState.mapModified = m.modified || '';
   appState.mapMeta = { name: m.name, label: m.label, created: m.created };
   appState.variants = [];
+  appState.variantExport.clear();
   appState.awaitingOcr = new Set();
   appState.dirtySides = { map: false, content: false };
   history.clear(); appState.selected.clear(); appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
+  appState.workspace = 'content';
+  appState.viewing = null;
+  syncModeFromState();
 }
 
 // An empty region map for the PDF that is already open. Map and content are separate
@@ -983,6 +1122,8 @@ function emptyMapForPdf(size) {
   const map = createMap({ filename: appState.pdfName, sha256: appState.sha256, pageCount: viewer.pageCount });
   if (size) ensurePage(map, 1, size.width, size.height);
   installMapOnly(map);
+  // A newly created map has never been written outside the browser.
+  appState.mapExported = false;
 }
 
 // Read a content variant file and check it is really for this map: a variant that names
@@ -1049,8 +1190,10 @@ async function newEmptyContentVariant() {
     destinationLanguage: appState.pdfLanguage || 'en',
     label: 'New variant',
   });
+  applyPatchBackgrounds(next, currentPatchBackgrounds());
   pruneVariantToMap(next, map);
   installProject(map, next);
+  markVariantExported(appState.content, false);
   history.clear(); appState.selected.clear(); appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
   refreshChrome(); renderCurrent(); refreshMapInfo();
   saveProjectNow();
@@ -1069,6 +1212,7 @@ async function importContentFile(file) {
     const content = await readContentFile(file, map);   // throws unless it belongs to this map
     pruneVariantToMap(content, map);
     installProject(map, content);
+    markVariantExported(appState.content, true);
     history.clear(); appState.selected.clear(); appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
     refreshChrome(); renderCurrent(); refreshMapInfo();
     saveProjectNow();
@@ -1090,18 +1234,13 @@ async function createContentVariant(sourceLanguage, destinationLanguage, label) 
     mapId: map.mapId, sourceLanguage, destinationLanguage, label,
     name: defaultContentName(map.meta.name, sourceLanguage, destinationLanguage),
   });
-  // Preserve backgrounds from map-only regions: copy non-default backgrounds
-  // from the map's regions into the new content variant so they don't reset.
-  for (const p of map.pages) {
-    for (const r of p.regions) {
-      const bg = r.content?.background;
-      if (bg && bg !== DEFAULT_BACKGROUND) {
-        next.regions[r.id] = { background: bg, items: [] };
-      }
-    }
-  }
+  // Patch backgrounds live per content entry in the shipped format. Carry the ones visible
+  // in the current merged project into the new variant so it starts with the colours the
+  // user set, instead of appearing to reset them.
+  applyPatchBackgrounds(next, currentPatchBackgrounds());
   pruneVariantToMap(next, map);
   installProject(map, next);
+  markVariantExported(appState.content, false);
   // The source language chosen for a variant is the document's own language; remember it
   // so the next extraction/translation does not ask for it again.
   appState.pdfLanguage = sourceLanguage;
@@ -1201,6 +1340,7 @@ async function openContentFile(file) {
     const content = await readContentFile(file, map);   // throws unless it belongs to this map
     pruneVariantToMap(content, map);
     installProject(map, content);
+    markVariantExported(appState.content, true);
     history.clear(); appState.selected.clear(); appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
     refreshChrome(); renderCurrent(); refreshMapInfo();
     saveProjectNow();
@@ -1219,6 +1359,7 @@ let sessionGen = 0;          // bumped by a new file open, to abandon a stale re
 async function saveProjectNow() {
   if (!sessionActive) return;
   if (!appState.pmap) return;
+  setAutosaveState('saving');
   try {
     const { mapText, contentText, changed } = await projectTexts();
     if (!sessionActive || !appState.pmap) return;
@@ -1230,9 +1371,12 @@ async function saveProjectNow() {
     // dirtySides reflects "changed since last export to file system" — updated by
     // saveProjectNow (autosave) and exportProjectPart (user-initiated export).
     appState.dirtySides = changed;
+    setAutosaveState('saved');
     refreshMapInfo();
+    refreshStatusIndicators();
   } catch (e) {
     console.error('IndexedDB session save failed:', e);
+    setAutosaveState('error');
     // Don't reschedule; the next mutation will retry.
   }
 }
@@ -1335,11 +1479,14 @@ async function openProject(file) {
 
   if (content) {
     installProject(map, content);
+    markVariantExported(appState.content, true);
   } else {
     // Map-only project zip: the map loads on its own; a content variant is created or
     // loaded on demand when the user first needs it.
     installMapOnly(map);
   }
+  // A file opened from disk has already been exported outside the browser.
+  appState.mapExported = true;
 
   // Remember the remaining variants in-session so they appear in the switch-variant dialog.
   // They live as their own .content.json files; only the active variant is autosaved to
@@ -1414,45 +1561,53 @@ async function confirmUnloadMap() {
   return true;
 }
 
-// One prompt when both the map and the content variant have unsaved changes: the user
-// either exports both halves together (one download) or discards both. Only the sides that
-// are actually dirty are mentioned; a single dirty side keeps its own dedicated dialog.
-async function confirmUnloadProject() {
-  if (!appState.pmap) return true;
-  let changed;
+// Files that have not been written outside the browser in this session. Export state is
+// tracked independently for the map and the active variant, and is separate from browser
+// autosave: a loaded file starts exported; a new or restored one starts pending.
+async function pendingExportFiles() {
+  if (!appState.pmap) return [];
+  let changed = appState.dirtySides;
   try {
     ({ changed } = await projectTexts());
     appState.dirtySides = changed;
-    if (!changed.map && (!appState.content || !changed.content)) return true; // nothing dirty
   } catch {
-    // projectTexts() can throw if the resolved project can't be split. Fall back to the
-    // runtime dirty flags so we never silently close over unsaved work.
-    if (!(appState.dirtySides?.map || appState.dirtySides?.content)) return true;
+    // Fall back to the runtime flags so a split failure never hides unsaved work.
   }
-  const mapDirty = appState.pmap && changed.map;
-  const contentDirty = appState.content && changed.content;
-  if (!mapDirty && !contentDirty) return true;
-  // Single dirty side keeps its own dialog — the combined one is only for both.
-  if (contentDirty && !mapDirty) return confirmContentUnload();
-  if (mapDirty && !contentDirty) return confirmUnloadMap();
+  const out = [];
+  if (changed?.map || !appState.mapExported) {
+    out.push({ kind: 'map', label: appState.pmap.meta?.name || 'region map (.pmap)' });
+  }
+  if (appState.content && (changed?.content || !variantIsExported(appState.content))) {
+    out.push({ kind: 'content', label: appState.content.name || 'content variant (.content.json)' });
+  }
+  return out;
+}
+
+// One combined prompt for closing (and for replacing the project): it lists every file that
+// is not exported yet and offers Export / Close without exporting / Cancel. Only a genuinely
+// empty export checklist skips the dialog.
+async function confirmUnloadProject() {
+  if (!appState.pmap) return true;
+  const pending = await pendingExportFiles();
+  if (!pending.length) return true;
+  const names = pending.map(f => f.label).join(' and ');
   const what = await appDialog({
-    title: 'Export or Discard',
-    text: `Both the region map for “${appState.pdfName || 'this PDF'}” and the content variant “${appState.content.name}” have unsaved changes. Export both before closing?`,
+    title: 'Export before closing?',
+    text: `These files have not been exported to your file system in this session: ${names}. Browser autosave keeps the work in this browser, but closing (or opening another document) clears that saved session. Change without exporting?`,
     buttons: [
       { value: 'export', label: 'Export', primary: true },
-      { value: 'discard', label: 'Discard' },
+      { value: 'discard', label: 'Close without exporting' },
     ],
     cancelLabel: 'Cancel',
   });
   const choice = what ? what.value : null;
   if (!choice) return false;
   if (choice === 'export') {
-    await exportProjectPart('both');
-    try {
-      const { changed: again } = await projectTexts();
-      appState.dirtySides = again;
-      if (again.map || again.content) return false; // export failed
-    } catch { return false; }
+    const part = pending.some(f => f.kind === 'map') ? 'both' : 'content';
+    const ok = await exportProjectPart(part);
+    if (!ok) return false;
+    const still = await pendingExportFiles();
+    if (still.length) { setStatus('Export did not complete — close cancelled.'); return false; }
   }
   return true;
 }
@@ -1490,6 +1645,7 @@ async function openRegionFile(file) {
     }
     // Drop any current content: the map alone is loaded with no content variant.
     installMapOnly(map);
+    appState.mapExported = true;
     afterMapLoaded(`Loaded region map “${map.meta?.name || file.name}” (no content variant yet).`);
   } catch (err) { setStatus('Cannot load map: ' + err.message); }
 }
@@ -1526,11 +1682,13 @@ async function loadMapFile(file, contentFiles = []) {
     } catch (err) { why = ` — ${err.message}, so it was not loaded`; }
     if (content) {
       installProject(map, content);
+      markVariantExported(appState.content, true);
       afterMapLoaded(`Loaded ${map.meta?.name || file.name} + ${appState.content.name}${why}.`);
     } else {
       installMapOnly(map);
       afterMapLoaded(`Loaded ${map.meta?.name || file.name} (no content variant yet)${why}.`);
     }
+    appState.mapExported = true;
   } catch (err) { setStatus('Cannot load map: ' + err.message); }
 }
 
@@ -1557,7 +1715,7 @@ async function pickRegionFile() {
       resolve(!!appState.pmap);
     };
     els.filePmap.addEventListener('change', onChange, { once: true });
-    els.filePmap.click();
+    openFilePicker(els.filePmap);
     setTimeout(() => { if (!resolved) { resolved = true; els.filePmap.removeEventListener('change', onChange); els.filePmap.onchange = originalOnChange; resolve(false); } }, 30000);
   });
 }
@@ -1582,7 +1740,7 @@ async function pickContentFile() {
       resolve(!!appState.content);
     };
     els.fileContentVariant.addEventListener('change', onChange, { once: true });
-    els.fileContentVariant.click();
+    openFilePicker(els.fileContentVariant);
     setTimeout(() => { if (!resolved) { resolved = true; els.fileContentVariant.removeEventListener('change', onChange); els.fileContentVariant.onchange = originalOnChange; resolve(false); } }, 30000);
   });
 }
@@ -1647,6 +1805,8 @@ async function restoreSession() {
     const prefs = loadDocPrefs(appState.sha256);
     appState.pdfLanguage = prefs.pdfLanguage || null;
     appState.variants = [];
+    appState.mapExported = false;
+    appState.variantExport.clear();
     appState.page = 1; appState.selected.clear(); history.clear(); appState.zoom = 1.2; clearItemSelection();
     lastPdfRender = { page: 0, zoom: 0 };
     docGen++;
@@ -1674,6 +1834,8 @@ async function restoreSession() {
         appState.content.savedMap = null;
         appState.content.savedContent = null;
         appState.dirtySides = { map: true, content: true };
+        appState.mapExported = false;
+        markVariantExported(appState.content, false);
       } else {
         // Map-only restore: no content variant was saved (or it was unreadable). The map
         // comes back on its own; a content variant is created/loaded on demand.
@@ -1681,6 +1843,7 @@ async function restoreSession() {
         // Same as above: a restored map has not been exported in this session.
         appState.savedMap = null;
         appState.dirtySides = { map: true, content: false };
+        appState.mapExported = false;
       }
     } else {
       // No saved map — don't fabricate an empty project. The user creates a map
@@ -1910,7 +2073,7 @@ function renderCurrent() {
   return renderQueue;
 }
 async function doRenderCurrent() {
-  if (!viewer.doc) return;
+  if (!viewer.doc) { refreshChrome(); syncPropsForm(); refreshMapInfo(); return; }
   els.pdfCanvas.hidden = false;
   const size = await viewer.baseSize(appState.page);
   stage.setPageSize(size.width, size.height);
@@ -1938,17 +2101,17 @@ async function doRenderCurrent() {
   applyTextLayerInteractivity();
   els.zoomLabel.textContent = Math.round(appState.zoom * 100) + '%';
   document.querySelectorAll('#thumbs canvas').forEach(c => c.classList.toggle('active', +c.dataset.page === appState.page));
-  if (!appState.pmap) { refreshChrome(); return; }
+  if (!appState.pmap) { refreshChrome(); syncPropsForm(); refreshMapInfo(); return; }
   ensurePage(appState.pmap, appState.page, size.width, size.height);
   const pg = getPage(appState.pmap, appState.page);
   let regions = pg ? pg.regions : [];
   if (appState.dragPreview) regions = applyDragPreview(regions);
   const itemBoxes = inContent() && !appState.draft.length
-    ? regions.filter(r => appState.selected.has(r.id)).flatMap(r => buildItemBoxes(r))
+    ? regions.flatMap(r => appState.selected.has(r.id) ? buildItemBoxes(r) : buildGhostItemBoxes(r))
     : [];
   const digitalSource = digitalSourceState();
   const digitalFilled = new Set(regions.filter(r => hasDigitalContent(r, digitalSource)).map(r => r.id));
-  overlay.render({ regions, selectedIds: appState.selected, draftPoints: appState.draft, draftCursor: inRegion() ? appState.cursor : null, splitLine: appState.splitPts, mode: appState.mode, tool: appState.tool, itemBoxes, selectedVertex: appState.selectedVertex, marquee: isEditMode() ? appState.marquee : null, clipWarn: clippedRegions(regions), showDigital: appState.showDigital, digitalFilled, awaitingOcr: appState.awaitingOcr, statusTags: { filled: workflowCopy().filledTag, missing: workflowCopy().missingTag } });
+  overlay.render({ regions, selectedIds: appState.selected, draftPoints: appState.draft, draftCursor: inRegion() ? appState.cursor : null, splitLine: appState.splitPts, mode: appState.mode, tool: appState.tool, itemBoxes, selectedVertex: appState.selectedVertex, marquee: isEditMode() ? appState.marquee : null, clipWarn: clippedRegions(regions), showDigital: appState.showDigital, showLabels: appState.showRegionInfo, digitalFilled, awaitingOcr: appState.awaitingOcr, statusTags: { filled: workflowCopy().filledTag, missing: workflowCopy().missingTag } });
   // Preview canvas. Preview mode masks every region and draws its items. The two editing modes
   // render the very same thing (mask + items) for every region *except* the one being
   // edited, whose mask is dropped (maskExcept) so the source PDF stays visible under the
@@ -2004,7 +2167,12 @@ function refreshChrome() {
   else if (armed) hint.textContent = `Add polygon — page ${appState.page}: click to place the first point · Esc cancels`;
   if (els.stage) els.stage.style.cursor = armed ? 'crosshair' : '';
   refreshModeIndicator();
+  refreshDocumentChrome();
+  refreshVariantChip();
+  refreshStatusIndicators();
+  refreshWorkspaceChrome();
   refreshContextTools();
+  refreshInspectorChrome();
   refreshCoverage();
   refreshNextAction();
   renderReviewList();
@@ -2021,7 +2189,7 @@ function nextActionItems() {
   const steps = [];
   const c = workflowCopy();
   if (!viewer.doc) {
-    steps.push({ text: 'Open a PDF to start (Ctrl/Cmd+O, or drop it here).', btn: ['Open PDF', () => els.filePdf.click()] });
+    steps.push({ text: 'Open a PDF to start (Ctrl/Cmd+O, or drop it here).', btn: ['Open PDF', () => openFilePicker(els.filePdf)] });
     return steps;
   }
   const pg = appState.pmap ? getPage(appState.pmap, appState.page) : null;
@@ -2037,7 +2205,7 @@ function nextActionItems() {
     });
   } else if (!appState.selected.size) {
     if (!isEditMode()) {
-      steps.push({ text: 'Switch to an editing mode to work on this page (Tab cycles modes).', btn: ['Region mode', () => setMode('region')] });
+      steps.push({ text: 'You are viewing a read-only rendering. Press Esc to return to the editing workspace.', btn: ['Return to editing', () => exitView()] });
     } else {
       const withoutSource = textRegions.filter(r => !firstTextItem(r.content)).length;
       if (withoutSource) {
@@ -2095,12 +2263,13 @@ function nextActionItems() {
       btn: ['Fit page text (R)', () => resizeAllTextInPage()],
     });
   }
-  if (appState.mode !== 'view') steps.push({ text: 'Check the result in Preview mode (Tab), then export from the File menu.', btn: ['Preview', () => setMode('view')] });
+  if (!appState.viewing) steps.push({ text: 'Check the result in Preview (View ▸ Preview reconstruction), then export from the app bar.', btn: ['Preview', () => enterView('preview')] });
 
   // 4 — unsaved changes, always last (a project rows two files: map + content variant)
-  if (appState.dirtySides?.map || appState.dirtySides?.content) {
+  const needsExport = exportNeeds();
+  if (needsExport.any) {
     steps.push({
-      text: `Unsaved ${appState.dirtySides.map && appState.dirtySides.content ? 'map + content' : appState.dirtySides.map ? 'map' : 'content'} — the project is two files.`,
+      text: `Export pending: ${exportNeedLabel(needsExport)} — the project is two files; browser autosave alone does not write them outside this browser.`,
       btn: ['Export project (Ctrl/Cmd+S)', () => exportProjectPart('both')],
     });
   }
@@ -2110,6 +2279,7 @@ function nextActionItems() {
 function refreshNextAction() {
   const sec = $('next-action'), list = $('next-action-list');
   if (!sec || !list) return;
+  if (appState.viewing) { sec.hidden = true; return; }
   sec.hidden = false;
   list.innerHTML = '';
   const items = nextActionItems();
@@ -2227,19 +2397,314 @@ function refreshCoverage() {
 }
 
 function refreshModeIndicator() {
-  for (const b of document.querySelectorAll('#mode-group button')) b.classList.toggle('active', b.dataset.mode === appState.mode);
+  // Workspace tabs show the persistent workspace; during a transient View the underlying
+  // workspace stays highlighted so returning is predictable.
+  for (const b of document.querySelectorAll('#workspace-switch .workspace-tab')) {
+    const on = b.dataset.workspace === appState.workspace;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  }
   // The body carries the mode too, so CSS can describe the mode's vocabulary (e.g. in
-  // Content mode a polygon is a read-only outline, not a draggable shape).
+  // Content mode a polygon is a read-only outline, not a draggable shape), plus the
+  // transient viewing state.
   for (const m of MODE_ORDER) document.body.classList.toggle(`mode-${m}`, appState.mode === m);
+  document.body.classList.toggle('viewing-preview', appState.viewing === 'preview');
+  document.body.classList.toggle('viewing-original', appState.viewing === 'original');
+  if (els.btnViewMenu) {
+    els.btnViewMenu.classList.toggle('active', !!appState.viewing);
+    els.btnViewMenu.setAttribute('aria-pressed', String(!!appState.viewing));
+  }
+  if (els.viewMenuLabel) {
+    els.viewMenuLabel.textContent = appState.viewing === 'preview' ? 'Preview'
+      : appState.viewing === 'original' ? 'Original' : 'View';
+  }
+}
+
+function refreshDocumentChrome() {
+  const open = !!viewer.doc;
+  if (els.docName) els.docName.textContent = open ? (appState.pdfName || 'Untitled PDF') : 'No PDF open';
+  if (els.btnClosePdf) els.btnClosePdf.hidden = !open;
+  if (els.btnOpenPdf) els.btnOpenPdf.textContent = open ? 'Open another PDF' : 'Open PDF';
+  if (els.docChip) els.docChip.classList.toggle('has-doc', open);
+  document.title = open ? `${appState.pdfName || 'PDF'} — PDFBandit` : 'PDFBandit — Fix/Translate PDFs, your way.';
+}
+
+function refreshVariantChip() {
+  const c = appState.content;
+  const map = appState.pmap;
+  if (els.btnVariantMenu) {
+    els.btnVariantMenu.disabled = !map;
+    els.btnVariantMenu.classList.toggle('loaded', !!c);
+    els.btnVariantMenu.title = !map ? 'Load or create a region map first'
+      : c ? `Active content variant: ${c.name} (${c.sourceLanguage} → ${c.destinationLanguage})`
+        : 'No content variant is loaded — create or load one';
+  }
+  if (els.variantChipName) {
+    els.variantChipName.textContent = c ? c.name : (map ? 'No content variant' : 'No region map');
+  }
+  if (els.variantChipSub) {
+    els.variantChipSub.textContent = c
+      ? `${c.sourceLanguage} → ${c.destinationLanguage}${contentIsImprove() ? ' · Improve' : ' · Translate'}`
+      : '';
+  }
+  if (els.btnNewVariant) els.btnNewVariant.hidden = !map;
+}
+
+function variantIsExported(content = appState.content) {
+  return !!content && appState.variantExport.get(variantKey(content)) === true;
+}
+function markVariantExported(content = appState.content, exported = true) {
+  if (!content) return;
+  const key = variantKey(content);
+  if (exported) appState.variantExport.set(key, true);
+  else appState.variantExport.delete(key);
+}
+function exportNeeds() {
+  if (!appState.pmap) return { map: false, content: false, any: false };
+  const map = !!appState.dirtySides?.map || !appState.mapExported;
+  const content = !!appState.content && (!!appState.dirtySides?.content || !variantIsExported(appState.content));
+  return { map, content, any: map || content };
+}
+function exportNeedLabel(needs = exportNeeds()) {
+  const parts = [];
+  if (needs.map) parts.push('region map');
+  if (needs.content) parts.push('content variant');
+  return parts.join(' + ');
+}
+
+let autosaveState = 'idle'; // idle | saving | saved | error
+
+function refreshStatusIndicators() {
+  const needs = exportNeeds();
+  if (els.btnExport) {
+    els.btnExport.disabled = !appState.pmap;
+    els.btnExport.classList.toggle('needs-export', needs.any);
+    els.btnExport.title = !appState.pmap
+      ? 'Load or create a region map first'
+      : needs.any
+        ? `Export pending: ${exportNeedLabel(needs)} (Ctrl/Cmd+S)`
+        : 'Everything is exported (Ctrl/Cmd+S exports again)';
+  }
+  if (els.btnExportMore) els.btnExportMore.disabled = !appState.pmap;
+  if (els.btnUndo) els.btnUndo.disabled = !history.canUndo;
+  if (els.btnRedo) els.btnRedo.disabled = !history.canRedo;
+
+  if (els.saveStatus) {
+    if (!viewer.doc || !appState.pmap) {
+      els.saveStatus.hidden = true;
+    } else {
+      els.saveStatus.hidden = false;
+      els.saveStatus.classList.remove('is-saving', 'is-pending', 'is-error');
+      let text;
+      if (autosaveState === 'saving') {
+        text = 'Saving…';
+        els.saveStatus.classList.add('is-saving');
+      } else if (autosaveState === 'error') {
+        text = 'Autosave failed';
+        els.saveStatus.classList.add('is-error');
+      } else if (needs.any) {
+        text = 'Autosaved · export pending';
+        els.saveStatus.classList.add('is-pending');
+      } else {
+        text = 'Autosaved · exported';
+      }
+      els.saveStatus.innerHTML = `<span class="save-dot"></span><span>${text}</span>`;
+      els.saveStatus.title = 'Browser autosave keeps the project in this browser only. Export writes the .pmap and .content.json files to your file system.';
+    }
+  }
+}
+
+function setAutosaveState(state) {
+  autosaveState = state;
+  refreshStatusIndicators();
+}
+
+// Region and content inspector visibility, summaries and state-dependent copy.
+function refreshInspectorChrome() {
+  const hasMap = !!appState.pmap;
+  const hasContent = !!appState.content;
+  const r = currentRegion();
+  const inContentWs = appState.workspace === 'content';
+  const inRegionWs = appState.workspace === 'region';
+
+  if (els.contentInspector) els.contentInspector.hidden = !inContentWs;
+  if (els.regionInspector) els.regionInspector.hidden = !inRegionWs;
+  if (els.contentEmpty) els.contentEmpty.hidden = hasContent;
+  if (els.contentForm) els.contentForm.hidden = !(hasMap && hasContent);
+  if (els.contentFields) els.contentFields.hidden = !r;
+
+  if (els.contentSummary) {
+    if (!hasMap) {
+      els.contentSummary.textContent = 'No region map yet — a content variant belongs to a region map. Detect or draw regions first.';
+    } else if (!hasContent) {
+      const n = (getPage(appState.pmap, appState.page)?.regions || []).length;
+      els.contentSummary.innerHTML = `<strong>${escapeHtml(appState.pmap.meta?.name || 'Region map')}</strong><br>`
+        + `${n} region${n === 1 ? '' : 's'} on page ${appState.page} · no content variant loaded.`;
+    } else {
+      const c = appState.content;
+      const total = appState.pmap.pages.reduce((a, p) => a + (p.regions?.length || 0), 0);
+      const withItems = appState.pmap.pages.reduce((a, p) => a + (p.regions || []).filter(x => (x.content?.items || []).length).length, 0);
+      els.contentSummary.innerHTML = `<strong>${escapeHtml(c.name)}</strong><br>`
+        + `${escapeHtml(c.sourceLanguage)} → ${escapeHtml(c.destinationLanguage)} · ${contentIsImprove() ? 'Improve' : 'Translate'}<br>`
+        + `${withItems} of ${total} region${total === 1 ? '' : 's'} edited`;
+    }
+  }
+
+  if (els.propsEmpty) {
+    const regions = currentRegions();
+    let copy;
+    if (!hasMap) copy = 'No region map yet. Open or create one, then detect or draw regions to start.';
+    else if (!regions.length) copy = `This page has no regions. Switch to <b>Edit regions</b> and press <b>P</b> to draw one, or run <b>Detect</b>.`;
+    else if (!r) copy = `Nothing selected. Click a region — or a text box in <b>Content</b> — to select it.`;
+    else copy = 'Region selected.';
+    els.propsEmpty.innerHTML = copy;
+  }
+
+  // Files panel actions reflect what is actually available.
+  if (els.mapEdit) els.mapEdit.disabled = !hasMap;
+  if (els.mapLoad) els.mapLoad.disabled = !viewer.doc;
+  if (els.mapNew) els.mapNew.disabled = !viewer.doc;
+  if (els.mapExport) els.mapExport.disabled = !hasMap;
+  if (els.contentSwitch) els.contentSwitch.disabled = !hasContent;
+  if (els.contentLoad) els.contentLoad.disabled = !hasMap;
+  if (els.contentNew) els.contentNew.disabled = !hasMap;
+  if (els.contentExport) els.contentExport.disabled = !hasContent;
+}
+
+// Workspace tool strips and the state-dependent empty/setup card over the page.
+function refreshWorkspaceChrome() {
+  const viewing = !!appState.viewing;
+  if (els.contentWorkspaceTools) els.contentWorkspaceTools.hidden = appState.workspace !== 'content' || viewing;
+  if (els.regionWorkspaceTools) els.regionWorkspaceTools.hidden = appState.workspace !== 'region' || viewing;
+
+  // Contextual actions follow what the workspace can actually do right now.
+  if (els.btnTranslateWorkflow) {
+    els.btnTranslateWorkflow.textContent = contentIsImprove() ? 'Make selectable' : 'Translate';
+    els.btnTranslateWorkflow.disabled = !viewer.doc;
+    els.btnTranslateWorkflow.title = contentIsImprove()
+      ? 'Extract the PDF’s own text into the selectable variant for the selected regions (or this page)'
+      : 'Translate the selected regions (or the page’s text regions when none are selected)';
+  }
+  if (els.btnContentFind) els.btnContentFind.disabled = !(appState.pmap && appState.content);
+  if (els.btnDetectRegions) els.btnDetectRegions.disabled = !viewer.doc;
+  if (els.btnDrawRegion) els.btnDrawRegion.disabled = !viewer.doc;
+  if (els.btnLockRegionQuick) els.btnLockRegionQuick.disabled = !appState.selected.size;
+  if (els.btnRegionOpenContent) els.btnRegionOpenContent.disabled = !currentRegion();
+
+  refreshEmptyState();
+}
+
+function emptyAction(label, fn, primary = false) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = label;
+  if (primary) b.className = 'primary';
+  b.onclick = () => { try { fn(); } finally { refreshChrome(); } };
+  return b;
+}
+
+function refreshEmptyState() {
+  if (!els.workspaceEmpty || !els.emptyTitle || !els.emptyText || !els.emptyActions) return;
+  const show = (title, text, actions) => {
+    els.workspaceEmpty.hidden = false;
+    els.emptyTitle.textContent = title;
+    els.emptyText.textContent = text;
+    els.emptyActions.innerHTML = '';
+    for (const a of actions) els.emptyActions.appendChild(a);
+  };
+  const hide = () => { els.workspaceEmpty.hidden = true; };
+  const regions = appState.pmap ? (getPage(appState.pmap, appState.page)?.regions || []) : [];
+  const contentWs = appState.workspace === 'content';
+
+  if (!viewer.doc) {
+    show('Open a PDF to begin', 'PDFBandit keeps the source PDF untouched. Region maps and content variants are created or loaded as you need them — nothing is uploaded.', [
+      emptyAction('Open PDF', () => openFilePicker(els.filePdf), true),
+    ]);
+    return;
+  }
+  if (appState.viewing) { hide(); return; }
+  if (!appState.pmap) {
+    show(
+      contentWs ? 'Create a region map first' : 'Start with a region map',
+      contentWs
+        ? 'Content variants are keyed by region id, so they need a region map. Detect regions on this page, draw one yourself, or open an existing map.'
+        : 'Regions are the shared geometry for every content variant. Detect them on this page, or draw one yourself with P.',
+      [
+        emptyAction('Detect regions', () => detectRegionsOnPage(), true),
+        emptyAction('Draw a region', () => { setWorkspace('region'); armPolygon(); }),
+        emptyAction('Open map…', () => openFilePicker(els.filePmap)),
+      ],
+    );
+    return;
+  }
+  if (!regions.length) {
+    show(
+      'This page has no regions yet',
+      contentWs
+        ? 'Switch to Edit regions to detect or draw them; content editing works per region.'
+        : 'Detect regions on this page, or press P to draw one. Proposals stay editable — nothing is confirmed automatically.',
+      contentWs
+        ? [emptyAction('Edit regions', () => setWorkspace('region'), true), emptyAction('Detect regions', () => detectRegionsOnPage())]
+        : [emptyAction('Detect regions', () => detectRegionsOnPage(), true), emptyAction('Draw a region', () => armPolygon())],
+    );
+    return;
+  }
+  if (contentWs && !appState.content && !appState.selected.size) {
+    show(
+      'The map has no content variant',
+      'The region map is ready. Create a variant for a language pair (source = destination makes an Improve variant), or load an existing .content.json.',
+      [
+        emptyAction('Create content variant…', () => promptNewContentVariant(), true),
+        emptyAction('Open content file…', () => openFilePicker(els.fileContentVariant)),
+      ],
+    );
+    return;
+  }
+  hide();
+}
+
+function refreshObjectPicker() {
+  const sel = els.objectPicker;
+  if (!sel) return;
+  const r = currentRegion();
+  if (!appState.pmap || !appState.content) {
+    sel.innerHTML = '<option>No content variant</option>';
+    sel.disabled = true;
+    return;
+  }
+  const items = r?.content?.items || [];
+  if (!r) {
+    const regions = currentRegions();
+    if (!regions.length) {
+      sel.innerHTML = '<option>No regions on this page</option>';
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    sel.innerHTML = '<option value="">Select an object…</option>'
+      + regions.map(x => `<option value="region:${escapeHtml(x.id)}">Region ${escapeHtml(x.id)} — ${(x.content?.items || []).length} item(s)</option>`).join('');
+    sel.value = '';
+    return;
+  }
+  sel.disabled = false;
+  const rows = [`<option value="region:${escapeHtml(r.id)}">Region ${escapeHtml(r.id)} (region)</option>`];
+  items.forEach((it, i) => {
+    const label = it.type === 'image' ? `Image ${i + 1}` : `Text ${i + 1} — ${(itemText(it) || '(empty)').slice(0, 32)}`;
+    rows.push(`<option value="item:${escapeHtml(r.id)}:${i}">${escapeHtml(label)}</option>`);
+  });
+  sel.innerHTML = rows.join('');
+  sel.value = appState.itemSelected && items[appState.itemIndex]
+    ? `item:${r.id}:${appState.itemIndex}`
+    : `region:${r.id}`;
 }
 
 function refreshMapInfo() {
   if (!appState.pmap) { els.mapInfo.textContent = 'No Region Map loaded.'; return; }
 
-  // Saves are now immediate (no debounce). IndexedDB is always in sync with the
-  // current model. The "unsaved" indicator here now reflects export-dirty state
-  // (dirtySides) — changes that haven't been exported to the file system yet.
-  const indexDbDirty = appState.dirtySides?.map || appState.dirtySides?.content;
+  // Saves are immediate (no debounce): IndexedDB is always in sync with the current model.
+  // The badge here is about external export — whether the files have been written to the
+  // user's file system this session — which is independent of browser autosave.
+  const needs = exportNeeds();
 
   // ---- PDF ----
   const pc = Number(appState.pmap.source?.page_count) || appState.pmap.pages.length || 0;
@@ -2248,17 +2713,17 @@ function refreshMapInfo() {
 
   // ---- Region map ----
   const n = appState.pmap.pages.reduce((a, p) => a + (p.regions?.length || 0), 0);
-  const mapStatus = indexDbDirty ? 'unsaved' : 'saved';
-  const mapLine = `<div class="file-row"><div class="file-kind ${mapStatus}">Region map</div><div class="file-name">${escapeHtml(appState.pmap.meta?.name || '—')}</div><div class="file-detail">${n} region${n === 1 ? '' : 's'} · ${pc} page${pc === 1 ? '' : 's'}</div></div>`;
+  const mapStatus = needs.map ? 'unsaved' : 'saved';
+  const mapLine = `<div class="file-row"><div class="file-kind ${mapStatus}">Region map</div><div class="file-name">${escapeHtml(appState.pmap.meta?.name || '—')}</div><div class="file-detail">${n} region${n === 1 ? '' : 's'} · ${pc} page${pc === 1 ? '' : 's'}${needs.map ? ' · not exported' : ''}</div></div>`;
 
   // ---- Content variant ----
   let contentLine = '';
   if (appState.content) {
     const c = appState.content;
-    const contentStatus = indexDbDirty ? 'unsaved' : 'saved';
+    const contentStatus = needs.content ? 'unsaved' : 'saved';
     const variantLabel = c.label ? ` (“${escapeHtml(c.label)}”)` : '';
     const role = activeVariantIsSource() ? workflowCopy().sourceVariant : 'translation';
-    contentLine = `<div class="file-row"><div class="file-kind ${contentStatus}">Content variant</div><div class="file-name">${escapeHtml(c.name)}${variantLabel}</div><div class="file-detail">${escapeHtml(c.sourceLanguage)} → ${escapeHtml(c.destinationLanguage)} · ${role}</div></div>`;
+    contentLine = `<div class="file-row"><div class="file-kind ${contentStatus}">Content variant</div><div class="file-name">${escapeHtml(c.name)}${variantLabel}</div><div class="file-detail">${escapeHtml(c.sourceLanguage)} → ${escapeHtml(c.destinationLanguage)} · ${role}${needs.content ? ' · not exported' : ''}</div></div>`;
   }
 
   els.mapInfo.innerHTML = `<div class="file-list">${pdfLine}${mapLine}${contentLine}</div>`;
@@ -2274,17 +2739,61 @@ function applyMode() {
   if (!inRegion()) { appState.tool = 'select'; appState.selectedVertex = null; }
   // Coloring mode (eyedropper) is Region-only; switching out of it turns it off.
   if (!inRegion() && appState.coloringMode) { appState.coloringMode = false; cancelEyedropper(); document.body.classList.remove('coloring-mode'); }
-  if (!inContent()) { appState.itemSelected = false; clearItemSelection(); }
+  if (appState.workspace !== 'content') { appState.itemSelected = false; clearItemSelection(); }
   applyTextLayerInteractivity();
   rerender();
 }
 
 // ---- toolbar / menu action helpers ----
-// Tab steps forward through the modes, Shift+Tab steps back (spec §9a).
+// ---- workspace vs. transient viewing ------------------------------------------------
+// The four internal mode values are preserved because every gate (`inRegion`, `inContent`,
+// `isEditMode`) still reads them. `workspace` is the persistent editor surface; `viewing`
+// layers a read-only render over it without losing the workspace, page, zoom or selection.
+function syncModeFromState() {
+  appState.mode = appState.viewing === 'preview' ? 'view'
+    : appState.viewing === 'original' ? 'text'
+    : appState.workspace;
+}
+function setWorkspace(ws) {
+  if (ws !== 'content' && ws !== 'region') return;
+  if (appState.workspace === ws && !appState.viewing) return;
+  appState.workspace = ws;
+  appState.viewing = null;
+  syncModeFromState();
+  applyMode();
+  refreshModeIndicator();
+}
+function enterView(kind) {
+  if (kind !== 'preview' && kind !== 'original') return;
+  if (!viewer.doc) return;
+  if (appState.viewing === kind) { exitView(); return; }
+  appState.viewing = kind;
+  syncModeFromState();
+  applyMode();
+  refreshModeIndicator();
+  setStatus(kind === 'original'
+    ? 'Original PDF text — select the PDF’s own text. Press Esc or use View ▸ Return to editing.'
+    : 'Preview — read-only reconstruction. Press Esc or use View ▸ Return to editing.');
+}
+function exitView() {
+  if (!appState.viewing) return;
+  appState.viewing = null;
+  syncModeFromState();
+  applyMode();
+  refreshModeIndicator();
+  setStatus(`Back to the ${appState.workspace === 'content' ? 'Content' : 'Edit regions'} workspace.`);
+}
+// Tab steps between the two editing workspaces only (spec §9a, revised IA). Preview and
+// Original are transient View actions now, never stops on the cycle.
 function cycleMode(back = false) {
-  const n = MODE_ORDER.length;
-  const i = MODE_ORDER.indexOf(appState.mode);
-  setMode(MODE_ORDER[((i + (back ? -1 : 1)) % n + n) % n]);
+  const ws = appState.workspace === 'content' ? 'region' : 'content';
+  setWorkspace(ws);
+}
+// Backwards-compatible entry point for menus/context actions that still name a mode.
+function setMode(m) {
+  if (m === 'view') return enterView('preview');
+  if (m === 'text') return enterView('original');
+  if (m === 'region' || m === 'content') return setWorkspace(m);
 }
 function setTool(t) {
   appState.tool = t;
@@ -2295,29 +2804,34 @@ function setTool(t) {
 // Arm/disarm the polygon drawing tool (Tools ▸ Add polygon, or the P shortcut). Drawing is
 // geometry, so the tool lives in Region mode only (spec §9a/§11.1).
 async function armPolygon() {
-  if (!inRegion()) { setStatus('Switch to Region mode to draw regions.'); return; }
+  if (!inRegion()) { setStatus('Open the Edit regions workspace to draw regions.'); return; }
   if (!appState.pmap && !(await ensureRegionFile())) return;
   if (appState.tool === 'polygon') { setTool('select'); setStatus('Add polygon: off.'); return; }
   setTool('polygon');
   setStatus('Add polygon: click to add points · Enter/double-click to close · Esc cancels.');
-}
-function setMode(m) {
-  if (appState.mode === m) return;
-  appState.mode = m;
-  applyMode();
-  refreshModeIndicator();
 }
 function toggleOverlay() {
   appState.overlayVisible = !appState.overlayVisible;
   overlay.visible = appState.overlayVisible;
   rerender();
 }
+// Region id/tag labels (and the T/IMG item tags) are an editing aid: hiding them leaves
+// every polygon outline, selection and vertex handle exactly as it was. Independent of
+// Show overlay, which hides the whole overlay.
+function toggleRegionInfo() {
+  appState.showRegionInfo = !appState.showRegionInfo;
+  rerender();
+  setStatus(appState.showRegionInfo
+    ? 'Region labels and status tags shown.'
+    : 'Region labels and status tags hidden — outlines stay visible.');
+  refreshChrome();
+}
 // The source/selectability on-page tags. They are an editing aid, not a content layer:
 // turning them off leaves the polygons and ids exactly as they were.
 function toggleDigitalVersion() {
   appState.showDigital = !appState.showDigital;
   rerender();
-  const where = isEditMode() ? '.' : ' — visible in Region and Content mode.';
+  const where = isEditMode() ? '.' : ' — visible in the editing workspaces.';
   const label = contentIsImprove() ? 'Selectability status tags' : 'Source-text status tags';
   setStatus(`${label} ${appState.showDigital ? 'shown' : 'hidden'}${where}`);
 }
@@ -2837,10 +3351,19 @@ function selectRegionBehind(id, point) {
 
 function syncPropsForm() {
   const r = currentRegion();
-  if (!r) { els.propsEmpty.hidden = false; els.propsForm.hidden = true; return; }
+  if (!r) {
+    els.propsEmpty.hidden = false;
+    els.propsForm.hidden = true;
+    if (els.regionGeometry) els.regionGeometry.innerHTML = '';
+    if (els.regionAssoc) { els.regionAssoc.className = 'assoc-row'; els.regionAssoc.innerHTML = ''; }
+    refreshObjectPicker();
+    refreshInspectorChrome();
+    return;
+  }
   els.propsEmpty.hidden = true; els.propsForm.hidden = false;
   els.fId.value = r.id;
   els.fBg.value = r.content?.background || DEFAULT_BACKGROUND;
+  if (els.fBgValue) els.fBgValue.textContent = els.fBg.value;
   // What the detector thought this was, while its provenance is still intact. Read-only:
   // the first user edit (geometry, content, lock, background) clears the provenance and
   // this with it. Editing modes only — the read-only views have no props panel anyway.
@@ -2859,11 +3382,31 @@ function syncPropsForm() {
       ? 'No usable selectable text under this region — the source is a scan, an image, or a broken text layer. Right-click the region and choose Read with OCR.'
       : 'No usable source text under this region — the source is a scan, an image, or a broken text layer. Right-click the region and choose Read with OCR.';
   }
+  // Geometry / association summary. Geometry is read-only here on purpose: it belongs to
+  // the Edit regions workspace, where the polygon is actually interactive.
+  if (els.regionGeometry) {
+    const [x0, y0, x1, y1] = regionBBox(r.geometry);
+    const pts = regionRings(r.geometry).reduce((a, ring) => a + ring.length, 0);
+    els.regionGeometry.innerHTML = `<span>Geometry</span><span>${Math.round(x1 - x0)} × ${Math.round(y1 - y0)} pt · ${pts} pts${isRegionLocked(r) ? ' · locked' : ''}</span>`;
+  }
+  if (els.regionAssoc) {
+    const items = r.content?.items || [];
+    const has = items.length > 0;
+    els.regionAssoc.className = `assoc-row ${has ? 'has-content' : 'none'}`;
+    const label = has
+      ? `${items.length} content item${items.length === 1 ? '' : 's'} in this variant`
+      : appState.content
+        ? 'No content here — the source page shows through'
+        : 'No content variant loaded';
+    els.regionAssoc.innerHTML = `<span class="assoc-dot"></span><span>${escapeHtml(label)}</span>`;
+  }
   const items = r.content?.items || [];
   if (appState.itemIndex >= items.length) appState.itemIndex = items.length - 1;
   if (appState.itemIndex < 0) appState.itemIndex = 0;
   renderItemsPanel(items);
   syncItemEditor(items[appState.itemIndex] || null);
+  refreshObjectPicker();
+  refreshInspectorChrome();
 }
 
 // "The text does not fit its own box": the renderer's own measurement (the same call that
@@ -2963,6 +3506,18 @@ function buildItemBoxes(region) {
   return items.map((it, index) => {
     const [x, y, w, h] = itemAbsBox(regionPoints(region.geometry), it);
     return { id: region.id, index, type: it.type, x, y, w, h, selected: isItemSelected(region.id, index) };
+  });
+}
+
+// Subdued boxes for items in regions that are not selected. Content mode uses them so an
+// ordinary click can reach a text box first (selection priority), while Alt still hands the
+// press to the polygon underneath.
+function buildGhostItemBoxes(region) {
+  if (!region || !appState.overlayVisible) return [];
+  const items = region.content?.items || [];
+  return items.map((it, index) => {
+    const [x, y, w, h] = itemAbsBox(regionPoints(region.geometry), it);
+    return { id: region.id, index, type: it.type, x, y, w, h, selected: false, ghost: true };
   });
 }
 
@@ -3173,7 +3728,7 @@ async function addImageItem() {
   if (!appState.content && !(await ensureContentFile())) return;
   if (!appState.selected.size) appState.selected = new Set([rid]);
   if (!inContent()) setMode('content');
-  els.fileItemImage.click();
+  openFilePicker(els.fileItemImage);
 }
 
 async function addImageFromSource(source) {
@@ -4419,7 +4974,9 @@ function refreshContextTools() {
   const inlineText = !!(editing && inlineState && !els.inlineEdit.hidden);
   const textSel = inlineText;
   const imgSel = !!(item && item.type === 'image') && !inlineText;
-  const regionSel = !!(editing && r && !item && !inlineText);
+  const regionSelected = !!(editing && r && !item && !inlineText);
+  const regionSel = !!(regionSelected && inRegion());
+  const contentRegionSel = !!(regionSelected && inContent());
   const itemSel = !!(editing && item && !inlineText);
   els.textTools.hidden = !textSel;
   els.imageTools.hidden = !imgSel;
@@ -4434,8 +4991,8 @@ function refreshContextTools() {
   if (els.itemTools) els.itemTools.hidden = !itemSel;
   // Add text / Add image place items, so they are the two Content-mode-only buttons of the
   // region group (spec §9a).
-  if (els.regionAddTools) els.regionAddTools.hidden = !(regionSel && inContent());
-  const textSelection = regionSel && selectedRegions().some(x => !isDetectedImage(x));
+  if (els.regionAddTools) els.regionAddTools.hidden = !contentRegionSel;
+  const textSelection = contentRegionSel && selectedRegions().some(x => !isDetectedImage(x));
   const tbl = inlineText ? tableTarget() : null;
   // Border tools are always visible in toolbar row 1 (not hidden)
   if (textSel) {
@@ -4479,10 +5036,16 @@ function refreshContextTools() {
     if (els.ttDirRtl) els.ttDirRtl.classList.toggle('active', dir === 'rtl');
   } else if (imgSel) {
     els.fItemFit.value = item.fit || 'contain';
-  } else if (regionSel) {
+  } else if (regionSelected) {
     els.fBg.value = r.content?.background || DEFAULT_BACKGROUND;
-    const lk = $('btn-lock-region');
-    if (lk) { lk.textContent = isRegionLocked(r) ? 'Unlock region' : 'Lock region'; lk.classList.toggle('active', isRegionLocked(r)); }
+    if (els.fBgValue) els.fBgValue.textContent = els.fBg.value;
+    for (const id of ['btn-lock-region', 'btn-lock-region-quick']) {
+      const lk = $(id);
+      if (lk) {
+        lk.textContent = isRegionLocked(r) ? 'Unlock region' : 'Lock region';
+        lk.classList.toggle('active', isRegionLocked(r));
+      }
+    }
   }
   if (itemSel && els.itemTools) {
     const n = r?.content?.items?.length || 0;
@@ -5107,7 +5670,7 @@ function deleteVertex(id, ring, idx) {
 
 // ---- merge / split ----
 function mergeSelected() {
-  if (!inRegion()) { setStatus('Merging regions is geometry work — switch to Region mode (Tab).'); return; }
+  if (!inRegion()) { setStatus('Merging regions is geometry work — switch to Edit regions (Tab).'); return; }
   const sel = selectedRegions();
   if (sel.length < 2) return;
   const locked = sel.filter(isRegionLocked);
@@ -5203,9 +5766,14 @@ function pdfFolderName() {
 }
 
 // Export the project (Ctrl/Cmd+S) — the shared map plus the active content variant —
-// into a folder-named ZIP on the user's file system.
+// into a folder-named ZIP on the user's file system. Returns true only when the ZIP was
+// generated and the download was triggered; export-dirty flags move only on success.
 async function exportProjectPart(what = 'both') {
-  if (!appState.pmap) return;
+  if (!appState.pmap) return false;
+  if (what === 'content' && !appState.content) {
+    setStatus('No content variant is loaded — nothing to export.');
+    return false;
+  }
   try {
     const { map, content, changed, mapText, contentText } = await projectTexts();
     const folder = pdfFolderName();
@@ -5213,27 +5781,18 @@ async function exportProjectPart(what = 'both') {
     const zip = new JSZip();
     const dir = zip.folder(folder);
     const names = [];
-    if (what !== 'content') {
+    const writesMap = what !== 'content';
+    const writesContent = !!appState.content && what !== 'map';
+    if (writesMap) {
       dir.file(map.meta.name, mapText);
-      if (appState.content) {
-        appState.content.mapModified = map.meta.modified;
-        appState.content.savedMap = canonical(map);
-      } else {
-        appState.savedMap = canonical(map);
-        appState.mapModified = map.meta.modified;
-      }
       names.push(`${folder}/${map.meta.name}`);
     }
-    if (appState.content && what !== 'map') {
+    if (writesContent) {
       dir.file(content.meta.name, contentText);
-      appState.content = { ...appState.content, modified: content.meta.modified };
-      appState.content.savedContent = canonical(content);
       names.push(`${folder}/${content.meta.name}`);
-      // Save holds every loaded variant, not just the active one: write each
-      // variant known this session plus both IndexedDB slots into the ZIP so
-      // nothing is lost. Deduped by variant identity so the active variant (just
-      // written above) isn't duplicated, and the same variant from a slot isn't
-      // written twice either.
+      // Save holds every loaded variant, not just the active one: write each variant known
+      // this session into the ZIP so nothing is lost. Deduped by variant identity so the
+      // active variant (just written above) isn't duplicated.
       if (what === 'both') {
         const activeKey = variantKey(content);
         const byKey = new Map();
@@ -5244,30 +5803,53 @@ async function exportProjectPart(what = 'both') {
           byKey.set(k, { content: c, name: defaultName || c.meta.name });
         };
         for (const v of appState.variants) addVariant(v.content);
-        // One IndexedDB content slot ('content') holds the active variant — already
-        // written above. There are no separate 'translate'/'improve' slots.
         for (const { content: c, name } of byKey.values()) {
-          const text = serializeContent(c);
-          dir.file(name, text);
+          dir.file(name, serializeContent(c));
           names.push(`${folder}/${name}`);
         }
       }
     }
-    if (what !== 'content') appState.dirtySides.map = false;
-    if (appState.content && what !== 'map') appState.dirtySides.content = false;
-    // Persist the exported state to IndexedDB so the session (and a refresh) sees the
-    // same backgrounds and content that just went into the ZIP.
-    if (appState.content) {
-      await saveSessionProject({ mapJson: mapText, mapName: appState.pmap.meta?.name, contentJson: contentText, contentName: appState.content.name });
-    } else {
-      await saveSessionProject({ mapJson: mapText, mapName: appState.pmap.meta?.name, contentJson: null, contentName: null });
-    }
     const blob = await zip.generateAsync({ type: 'blob' });
     downloadBlob(blob, `${folder}.zip`);
+
+    // The download has been triggered; now it is safe to move the export baselines.
+    if (writesMap) {
+      if (appState.content) {
+        appState.content.mapModified = map.meta.modified;
+        appState.content.savedMap = canonical(map);
+      } else {
+        appState.savedMap = canonical(map);
+        appState.mapModified = map.meta.modified;
+      }
+      appState.dirtySides.map = false;
+      appState.mapExported = true;
+    }
+    if (writesContent) {
+      appState.content = { ...appState.content, modified: content.meta.modified };
+      appState.content.savedContent = canonical(content);
+      appState.dirtySides.content = false;
+      markVariantExported(appState.content, true);
+    }
+    // Persist the exported state to IndexedDB so the session (and a refresh) sees the same
+    // backgrounds and content that just went into the ZIP.
+    try {
+      if (appState.content) {
+        await saveSessionProject({ mapJson: mapText, mapName: appState.pmap.meta?.name, contentJson: contentText, contentName: appState.content.name });
+      } else {
+        await saveSessionProject({ mapJson: mapText, mapName: appState.pmap.meta?.name, contentJson: null, contentName: null });
+      }
+    } catch (e) { console.error('Session save after export failed:', e); }
+
     const only = what === 'both' && changed.map !== changed.content ? ` (only the ${changed.map ? 'shared map' : 'content variant'} had changed)` : '';
     setStatus(`Exported ${names.join(' + ')} into ${folder}.zip.${only}`);
     refreshMapInfo();
-  } catch (e) { setStatus('Export failed: ' + e.message); }
+    refreshStatusIndicators();
+    return true;
+  } catch (e) {
+    setStatus('Export failed: ' + e.message);
+    refreshStatusIndicators();
+    return false;
+  }
 }
 
 // ---- image export ----
@@ -5358,11 +5940,16 @@ async function doExportDigital() {
 
 
 // Download progress for long provider work (chrome-ai's one-time model download).
+// While a cancellable job dialog is open, the same fraction also drives its bar.
+let activeJob = null;
+function startJob(opts) { activeJob = openJobDialog(opts); return activeJob; }
+function closeJob(job) { job?.close(); if (activeJob === job) activeJob = null; }
 function setProgress(fraction, label) {
   const f = Math.max(0, Math.min(1, Number(fraction) || 0));
   els.statusProgress.hidden = false;
   els.dlProgress.value = f;
   els.dlProgressLabel.textContent = label ? `${label} — ${Math.round(f * 100)}%` : `${Math.round(f * 100)}%`;
+  if (activeJob && !activeJob.cancelled) activeJob.fraction(f, label);
 }
 // The OpenCV.js loader reports bytes when the CDN supplies a length, but the module
 // import and WASM initialization have no meaningful fraction: show an indeterminate bar.
@@ -5753,21 +6340,33 @@ async function translateFromVariant(sel, { pdfLang, source, targetLang, chosenSo
   const svc = makeTranslationService(settings, { onProgress: setProgress });
   const srcLang = chosenSource !== 'auto' ? chosenSource : pdfLang;
   const done = [], failed = [];
+  const job = startJob({ title: 'Translating', text: `0 of ${sel.length} region${sel.length === 1 ? '' : 's'}`, total: sel.length });
   try {
-    for (const r of sel) {
+    for (let i = 0; i < sel.length; i++) {
+      if (job.cancelled) break;
+      const r = sel[i];
+      job.update(i, sel.length, `Reading ${r.id}…`);
       const s = await readSource(r);
+      if (job.cancelled) break;
       if (s.error) { failed.push({ id: r.id, msg: s.error }); continue; }
+      job.update(i, sel.length, `Translating ${r.id}…`);
       let translation = '';
       try { translation = String((await svc.translate(s.text, srcLang, target, { maxWords: countWords(s.text) }))?.text ?? ''); }
       catch (e) { failed.push({ id: r.id, msg: `Translating ${r.id} failed: ${e.message}` }); continue; }
       if (!translation.trim()) { failed.push({ id: r.id, msg: `The provider returned no text for ${r.id}.` }); continue; }
       done.push({ id: r.id, translation, hints: s.hints });
+      job.update(i + 1, sel.length, `Translated ${r.id}`);
     }
-  } finally { page?.cleanup?.(); clearProgress(); }
+  } finally { page?.cleanup?.(); clearProgress(); closeJob(job); }
 
   // Keep the extraction even when some regions failed: it is the source of truth for
   // the next translation.
   applySourceWrites(writes);
+
+  if (job.cancelled) {
+    setStatus(`Translation cancelled — ${done.length} of ${sel.length} region${sel.length === 1 ? '' : 's'} translated; nothing was written.`);
+    return { cancelled: true };
+  }
 
   if (!done.length) {
     const first = failed[0]?.msg || 'Nothing to translate.';
@@ -5849,15 +6448,21 @@ async function translateFromPageDirect(sel, { targetLang, chosenSource, pdfLang 
   const done = [], failed = [];
   const run = makeRunChoice();
   let cancelled = false;
+  const job = startJob({ title: 'Translating', text: `0 of ${sel.length} region${sel.length === 1 ? '' : 's'}`, total: sel.length });
   try {
-    for (const r of sel) {
+    for (let i = 0; i < sel.length; i++) {
+      if (job.cancelled) { cancelled = true; break; }
+      const r = sel[i];
+      job.update(i, sel.length, `Reading ${r.id}…`);
       let ex;
       try { ex = await readRegionFromPage(page, viewport, r, { lang: chosenSource }); }
       catch (e) { failed.push({ id: r.id, msg: `Reading text under ${r.id} failed: ${e.message}` }); continue; }
+      if (job.cancelled) { cancelled = true; break; }
       if (!ex.ok) { failed.push({ id: r.id, msg: extractReasonMessage(ex.reason, r.id, ex) }); continue; }
       const text = blocksText(ex.blocks);
       // The toolbar's source wins; otherwise fall back to what the text layer guessed.
       const srcLang = chosenSource !== 'auto' ? chosenSource : (ex.styleHints.sourceLang || 'auto');
+      job.update(i, sel.length, `Translating ${r.id}…`);
       let translation = '';
       try { translation = String((await svc.translate(text, srcLang, targetLang, { maxWords: countWords(text) }))?.text ?? ''); }
       catch (e) { failed.push({ id: r.id, msg: `Translating ${r.id} failed: ${e.message}` }); continue; }
@@ -5878,10 +6483,16 @@ async function translateFromPageDirect(sel, { targetLang, chosenSource, pdfLang 
         replace = res.choice === 'replace';
       }
       done.push({ r, translation, ex, targetLang, replace });
+      job.update(i + 1, sel.length, `Translated ${r.id}`);
     }
-  } finally { page.cleanup?.(); clearProgress(); }
+  } finally { page.cleanup?.(); clearProgress(); closeJob(job); }
 
-  if (cancelled) { setStatus('Translation cancelled — nothing was written.'); return { cancelled: true }; }
+  if (job.cancelled) cancelled = true;
+  if (cancelled) {
+    const partial = job.cancelled && done.length ? ` — ${done.length} of ${sel.length} translated, nothing was written` : ' — nothing was written';
+    setStatus(`Translation cancelled${partial}.`);
+    return { cancelled: true };
+  }
 
   if (!done.length) {
     const first = failed[0]?.msg || 'Nothing to translate.';
@@ -5964,6 +6575,21 @@ async function translateFromPageText() {
   if (!sel.length) { setStatus('Select text region(s) first.'); return; }
   return translateRegions(sel, { scope: 'selection' });
 }
+
+// The single Content-workspace action: act on the selected text regions when there are
+// any, otherwise on every text region on the page. Improve extracts/makes selectable;
+// Translate translates. Detection happens inside those paths when the page is unmapped.
+async function contentWorkflowAction() {
+  if (!viewer.doc) { setStatus('Open a PDF first.'); return; }
+  if (!appState.pmap && !(await ensureRegionFile())) return;
+  const sel = selectedRegions().filter(r => !isDetectedImage(r));
+  if (contentIsImprove()) {
+    if (sel.length) return extractSelectedContent();
+    return makeSelectablePage();
+  }
+  if (sel.length) return translateFromPageText();
+  return translatePageText();
+}
 // Detection is invisible to the Translate workflow: if a page has no regions yet, ask the
 // detector for geometry only, then translate. It never extracts into the source variant
 // first; the translation path reads/extracts as needed.
@@ -5997,11 +6623,12 @@ async function translatePageText() {
     return;
   }
   let regions = currentRegions().filter(r => r && !isDetectedImage(r));
-  if (!currentRegions().length) {
-    if (!(await detectMissingPages([appState.page]))) return;
-    regions = currentRegions().filter(r => r && !isDetectedImage(r));
+  if (!regions.length) {
+    // Detection is its own step (spec): translation works on existing regions, never as a
+    // side effect of the translate action. Point the user at Edit regions instead.
+    setStatus(`Page ${appState.page} has no regions yet — detect or draw them in Edit regions, then translate.`);
+    return;
   }
-  if (!regions.length) { setStatus(`No text regions to translate on page ${appState.page}.`); return; }
   appState.selected = new Set(regions.map(r => r.id));
   appState.itemIndex = 0; appState.itemSelected = false; clearItemSelection();
   return translateRegions(regions, { scope: 'page' });
@@ -6422,14 +7049,22 @@ async function extractSelectedContent() {
   setStatus(`Reading ${sel.length} region(s) into ${appState.content.name}…`);
   const done = [], skipped = [], failed = [], awaiting = [];
   const run = makeRunChoice();
+  const job = startJob({ title: 'Extracting text', text: `0 of ${sel.length} region${sel.length === 1 ? '' : 's'}`, total: sel.length });
+  let cancelled = false;
   try {
-    for (const r of sel) {
+    for (let i = 0; i < sel.length; i++) {
+      if (job.cancelled) { cancelled = true; break; }
+      const r = sel[i];
+      job.update(i, sel.length, `Reading ${r.id}…`);
       const h = await harvestRegion(page, viewport, r, true, run);
       if (h.cancelled) { setStatus('Extraction cancelled — nothing was written.'); return; }
+      if (job.cancelled) { cancelled = true; break; }
       if (h.error) { (regionNeedsOcr(r, h.reason) ? awaiting : failed).push({ id: r.id, msg: h.error }); continue; }
       done.push({ r, ex: h.ex, replace: h.replace });
+      job.update(i + 1, sel.length, `Read ${r.id}`);
     }
-  } finally { page.cleanup?.(); }
+  } finally { page.cleanup?.(); closeJob(job); }
+  if (cancelled) { setStatus('Extraction cancelled — nothing was written.'); return { cancelled: true }; }
   finishExtraction({ done, skipped, failed, awaiting: awaiting.map(a => a.id), label: 'extract content', action: workflowCopy().actionPast });
 }
 
@@ -6455,14 +7090,22 @@ async function ocrRegions(regions) {
   setStatus(`Reading ${sel.length} region${sel.length === 1 ? '' : 's'} with OCR into ${appState.content.name}…`);
   const done = [], failed = [], awaiting = [];
   const run = makeRunChoice();
+  const job = startJob({ title: 'Running OCR', text: `0 of ${sel.length} region${sel.length === 1 ? '' : 's'}`, total: sel.length });
+  let cancelled = false;
   try {
-    for (const r of sel) {
+    for (let i = 0; i < sel.length; i++) {
+      if (job.cancelled) { cancelled = true; break; }
+      const r = sel[i];
+      job.update(i, sel.length, `OCR on ${r.id}…`);
       const h = await harvestRegion(page, viewport, r, true, run, { forceOcr: true });
       if (h.cancelled) { setStatus(`${workflowCopy().actionLabel} cancelled — nothing was written.`); return; }
+      if (job.cancelled) { cancelled = true; break; }
       if (h.error) { (regionNeedsOcr(r, h.reason) ? awaiting : failed).push({ id: r.id, msg: h.error }); continue; }
       done.push({ r, ex: h.ex, replace: h.replace });
+      job.update(i + 1, sel.length, `OCR read ${r.id}`);
     }
-  } finally { page.cleanup?.(); }
+  } finally { page.cleanup?.(); closeJob(job); }
+  if (cancelled) { setStatus(`${workflowCopy().actionLabel} cancelled — nothing was written.`); return { cancelled: true }; }
   finishExtraction({ done, skipped: [], failed, awaiting: awaiting.map(a => a.id), label: 'ocr region(s)', action: 'OCR wrote' });
 }
 
@@ -6479,16 +7122,24 @@ async function extractPageContent() {
   const viewport = page.getViewport({ scale: 1 });
   setStatus(`Reading page ${appState.page} into ${appState.content.name}…`);
   const done = [], skipped = [], failed = [], awaiting = [];
+  const job = startJob({ title: 'Extracting page text', text: `0 of ${regions.length} region${regions.length === 1 ? '' : 's'}`, total: regions.length });
+  let cancelled = false;
   try {
-    for (const r of regions) {
+    for (let i = 0; i < regions.length; i++) {
+      if (job.cancelled) { cancelled = true; break; }
+      const r = regions[i];
       if (regionHasContent(r)) { skipped.push(r.id); continue; }
       // A detected figure has no text to harvest; it is not a failure and not an OCR case.
       if (isDetectedImage(r)) continue;
+      job.update(i, regions.length, `Reading ${r.id}…`);
       const h = await harvestRegion(page, viewport, r, false);
+      if (job.cancelled) { cancelled = true; break; }
       if (h.error) { (regionNeedsOcr(r, h.reason) ? awaiting : failed).push({ id: r.id, msg: h.error }); continue; }
       done.push({ r, ex: h.ex, replace: false });
+      job.update(i + 1, regions.length, `Read ${r.id}`);
     }
-  } finally { page.cleanup?.(); }
+  } finally { page.cleanup?.(); closeJob(job); }
+  if (cancelled) { setStatus('Extraction cancelled — nothing was written.'); return { cancelled: true }; }
   finishExtraction({ done, skipped, failed, awaiting: awaiting.map(a => a.id), label: 'extract content on page', action: workflowCopy().actionPast });
 }
 
@@ -6498,23 +7149,32 @@ async function extractAllPagesContent() {
   if (!(await ensureExtractionVariant(workflowCopy().actionLabel))) return;
   setStatus(`Reading all pages into ${appState.content.name}…`);
   const done = [], skipped = [], failed = [], awaiting = [];
-  for (let p = 1; p <= viewer.pageCount; p++) {
-    const regions = appState.pmap.pages.find(pg => pg.page === p)?.regions || [];
-    if (!regions.some(r => !regionHasContent(r))) { skipped.push(...regions.map(r => r.id)); continue; }
-    let page;
-    try { page = await viewer.doc.getPage(p); }
-    catch (e) { failed.push({ id: `page ${p}`, msg: e.message }); continue; }
-    const viewport = page.getViewport({ scale: 1 });
-    try {
-      for (const r of regions) {
-        if (regionHasContent(r)) { skipped.push(r.id); continue; }
-        if (isDetectedImage(r)) continue;
-        const h = await harvestRegion(page, viewport, r, false);
-        if (h.error) { (regionNeedsOcr(r, h.reason) ? awaiting : failed).push({ id: r.id, msg: h.error }); continue; }
-        done.push({ r, ex: h.ex, replace: false });
-      }
-    } finally { page.cleanup?.(); }
-  }
+  const job = startJob({ title: 'Extracting all pages', text: `Page 1 of ${viewer.pageCount}`, total: viewer.pageCount });
+  let cancelled = false;
+  try {
+    for (let p = 1; p <= viewer.pageCount; p++) {
+      if (job.cancelled) { cancelled = true; break; }
+      job.update(p - 1, viewer.pageCount, `Page ${p} of ${viewer.pageCount}`);
+      const regions = appState.pmap.pages.find(pg => pg.page === p)?.regions || [];
+      if (!regions.some(r => !regionHasContent(r))) { skipped.push(...regions.map(r => r.id)); continue; }
+      let page;
+      try { page = await viewer.doc.getPage(p); }
+      catch (e) { failed.push({ id: `page ${p}`, msg: e.message }); continue; }
+      const viewport = page.getViewport({ scale: 1 });
+      try {
+        for (const r of regions) {
+          if (job.cancelled) { cancelled = true; break; }
+          if (regionHasContent(r)) { skipped.push(r.id); continue; }
+          if (isDetectedImage(r)) continue;
+          const h = await harvestRegion(page, viewport, r, false);
+          if (h.error) { (regionNeedsOcr(r, h.reason) ? awaiting : failed).push({ id: r.id, msg: h.error }); continue; }
+          done.push({ r, ex: h.ex, replace: false });
+        }
+      } finally { page.cleanup?.(); }
+      if (cancelled) break;
+    }
+  } finally { closeJob(job); }
+  if (cancelled) { setStatus('Extraction cancelled — nothing was written.'); return { cancelled: true }; }
   finishExtraction({ done, skipped, failed, awaiting: awaiting.map(a => a.id), label: 'extract content on all pages', action: workflowCopy().actionPast });
 }
 
@@ -6866,6 +7526,11 @@ async function closePdf() {
   appState.pmap = null; appState.content = null; appState.variants = [];
   appState.savedMap = null; appState.mapModified = '';
   appState.dirtySides = { map: false, content: false };
+  appState.mapExported = false;
+  appState.variantExport.clear();
+  appState.workspace = 'content';
+  appState.viewing = null;
+  syncModeFromState();
 
   const name = appState.pdfName || 'PDF';
   const sha = appState.sha256;
@@ -6887,7 +7552,7 @@ async function closePdf() {
   appState.marquee = null; appState.marqueeBase = null; appState.marqueeItems = false;
   appState.dragPreview = null; appState.bgPreview = false;
   appState.eyedropperKey = false; cancelEyedropper();
-  appState.tool = 'select'; appState.mode = 'region';
+  appState.tool = 'select'; appState.mode = 'content';
   appState.overlayVisible = true; overlay.visible = true;
   appState.showDigital = true;
   history.clear();
@@ -6909,6 +7574,8 @@ async function closePdf() {
   els.zoomLabel.textContent = '100%';
   syncPropsForm();
   refreshMapInfo();
+  refreshNextAction();
+  refreshChrome();
   setStatus(`Closed ${name}.`);
 }
 
@@ -6918,4 +7585,16 @@ async function closePdf() {
 // needed. Opening another PDF overwrites the session with the new document instead.
 
 // Bring back the last session (the PDF and its map) from IndexedDB, if there is one.
-restoreSession().catch(() => {});
+restoreSession().then((restored) => {
+  if (!restored) {
+    // Nothing to restore: paint the empty state so the sidebar shows
+    // "Open a PDF to start" and "Nothing selected" instead of stale content.
+    refreshChrome();
+    syncPropsForm();
+    refreshMapInfo();
+  }
+}).catch(() => {
+  refreshChrome();
+  syncPropsForm();
+  refreshMapInfo();
+});

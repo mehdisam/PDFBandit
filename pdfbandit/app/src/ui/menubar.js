@@ -91,16 +91,6 @@ export function createMenubar(rootEl, menus) {
       titles.push(btn);
       bar.appendChild(btn);
     });
-    const brand = document.createElement('a');
-    brand.className = 'menubar-brand';
-    brand.href = '/';
-    brand.title = 'PDFBandit home';
-    const name = document.createElement('strong');
-    name.textContent = 'PDFBandit';
-    const tagline = document.createElement('span');
-    tagline.textContent = 'Fix/Translate PDFs, your way.';
-    brand.append(name, tagline);
-    bar.appendChild(brand);
   }
   buildTitles();
 

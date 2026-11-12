@@ -19,7 +19,7 @@ export class Overlay {
     this.visible = true;
   }
   clear() { this.svg.innerHTML = ''; }
-  render({ regions, selectedIds, draftPoints, draftCursor, splitLine, mode, tool = 'select', itemBoxes = [], selectedVertex = null, marquee = null, clipWarn = null, showDigital = false, digitalFilled = null, awaitingOcr = null, statusTags = null }) {
+  render({ regions, selectedIds, draftPoints, draftCursor, splitLine, mode, tool = 'select', itemBoxes = [], selectedVertex = null, marquee = null, clipWarn = null, showDigital = false, showLabels = true, digitalFilled = null, awaitingOcr = null, statusTags = null }) {
     this.clear();
     if (!this.visible || mode === 'view' || mode === 'text') return;
     const drafting = !!(draftPoints && draftPoints.length);
@@ -91,16 +91,18 @@ export class Overlay {
         this.svg.appendChild(poly);
       }
       const [lx, ly] = rings[0][0];
-      const label = el('text', { x: lx + (locked ? 16 : 3), y: ly + 13, class: 'rlabel' });
-      label.textContent = r.id;
-      if (showDigital) {
-        for (const tag of tagsFor(r)) {
-          const part = el('tspan', { class: `rtag ${tag.cls}` });
-          part.textContent = ` · ${tag.text}`;
-          label.appendChild(part);
+      if (showLabels) {
+        const label = el('text', { x: lx + (locked ? 16 : 3), y: ly + 13, class: 'rlabel' });
+        label.textContent = r.id;
+        if (showDigital) {
+          for (const tag of tagsFor(r)) {
+            const part = el('tspan', { class: `rtag ${tag.cls}` });
+            part.textContent = ` · ${tag.text}`;
+            label.appendChild(part);
+          }
         }
+        this.svg.appendChild(label);
       }
-      this.svg.appendChild(label);
       if (locked) this.svg.appendChild(this.renderLockBadge(lx + 3, ly + 2));
     }
     // The edge band of a selected region: an invisible ~10 px grab strip along its outline,
@@ -127,16 +129,23 @@ export class Overlay {
         this.renderHandles(r, clickThroughHandles, selectedVertex);
       }
     }
-    // Item boxes for the selected region: the "tiny canvas" for placing content.
+    // Item boxes: the "tiny canvas" for placing content. Ghost boxes (items in regions that
+    // are not selected) are subdued but still clickable, so Content mode prioritizes text
+    // boxes; Alt hands the press back to the region underneath.
     for (const it of itemBoxes) {
-      const rect = el('rect', { x: it.x, y: it.y, width: it.w, height: it.h, class: `item-box${it.selected ? ' item-selected' : ''}` });
+      const rect = el('rect', {
+        x: it.x, y: it.y, width: it.w, height: it.h,
+        class: `item-box${it.selected ? ' item-selected' : ''}${it.ghost ? ' item-ghost' : ''}`,
+      });
       rect.dataset.region = it.id; rect.dataset.index = it.index;
       rect.style.pointerEvents = 'auto';
       rect.addEventListener('pointerdown', (e) => this.d.onItemPointerDown(e, it.id, it.index));
       this.svg.appendChild(rect);
-      const tag = el('text', { x: it.x + 2, y: it.y + 9, class: 'item-tag' });
-      tag.textContent = it.type === 'image' ? 'IMG' : 'TXT';
-      this.svg.appendChild(tag);
+      if (!it.ghost && showLabels) {
+        const tag = el('text', { x: it.x + 2, y: it.y + 9, class: 'item-tag' });
+        tag.textContent = it.type === 'image' ? 'IMG' : 'TXT';
+        this.svg.appendChild(tag);
+      }
       if (it.selected) this.renderItemHandles(it);
     }
     if (draftPoints && draftPoints.length) this.renderDraft(draftPoints, draftCursor);

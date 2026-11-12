@@ -39,6 +39,26 @@ export const els = {
   findModal: null, findScope: null, findText: null, replaceText: null, findRegex: null, findCase: null,
   findStatus: null, findReplaceAll: null, findClose: null,
   eyedropperMag: null,
+
+  // App bar / workspace shell
+  appbar: null, docChip: null, docName: null, btnOpenPdf: null, btnClosePdf: null,
+  workspaceSwitch: null, contentWorkspaceTools: null, regionWorkspaceTools: null,
+  btnViewMenu: null, viewMenu: null, viewMenuLabel: null,
+  btnVariantMenu: null, variantChipName: null, variantChipSub: null, btnNewVariant: null, variantMenu: null,
+  btnUndo: null, btnRedo: null, saveStatus: null, btnExport: null, btnExportMore: null, exportMenu: null,
+  workspaceEmpty: null, emptyTitle: null, emptyText: null, emptyActions: null,
+  nextAction: null,
+
+  // Inspector
+  contentInspector: null, contentSummary: null, contentEmpty: null, contentForm: null,
+  contentFields: null, objectPicker: null,
+  regionInspector: null, regionGeometry: null, regionAssoc: null, fBgValue: null,
+  btnRegionOpenContent: null,
+  mapEdit: null, mapLoad: null, mapNew: null, mapExport: null,
+  contentSwitch: null, contentLoad: null, contentNew: null, contentExport: null,
+  btnTranslateWorkflow: null, btnContentFind: null,
+  btnDetectRegions: null, btnDrawRegion: null, btnLockRegionQuick: null,
+  btnRegionMoreMenu: null, regionMoreMenu: null,
 };
 
 // The single mutable app state object
@@ -47,12 +67,20 @@ export const appState = {
   pdfLanguage: null,
   pmap: null, page: 1, zoom: 1.2,
   project: null, dirtySides: { map: false, content: false },
+  // External export tracking, independent of browser autosave. `dirtySides` means
+  // "changed since the last export"; mapExported/variantExport mean "an export has
+  // actually completed in this session". A file needs export when either is false.
+  mapExported: false,
+  variantExport: new Map(),   // variantKey -> true after a successful export/load
   savedMap: null, mapModified: '', mapMeta: null,
   variants: [],
   selected: new Set(),
   itemSelection: new Set(),
   awaitingOcr: new Set(),
-  tool: 'select', mode: 'region', itemIndex: 0,
+  tool: 'select', mode: 'content',
+  // The editing workspace is persistent; viewing is a transient action layered on top.
+  workspace: 'content', viewing: null,
+  itemIndex: 0,
   itemSelected: false,
   draft: [], splitPts: [], cursor: null, marquee: null, marqueeBase: null, marqueeAdditive: false,
   marqueeItems: false,
@@ -60,6 +88,9 @@ export const appState = {
   selectedVertex: null,
   overlayVisible: true,
   showDigital: true,
+  // Region id/tag labels drawn over the polygons. Independent of the overlay itself:
+  // hiding the labels keeps the outlines visible.
+  showRegionInfo: true,
   coloringMode: false,
   eyedropper: null,
   bgPreview: false,
@@ -249,4 +280,61 @@ export function initEls() {
   els.findReplaceAll = $('find-replace-all');
   els.findClose = $('find-close');
   els.eyedropperMag = $('eyedropper-magnifier');
+
+  // App bar / workspace shell
+  els.appbar = $('appbar');
+  els.docChip = $('doc-chip');
+  els.docName = $('doc-name');
+  els.btnOpenPdf = $('btn-open-pdf');
+  els.btnClosePdf = $('btn-close-pdf');
+  els.workspaceSwitch = $('workspace-switch');
+  els.contentWorkspaceTools = $('content-workspace-tools');
+  els.regionWorkspaceTools = $('region-workspace-tools');
+  els.btnViewMenu = $('btn-view-menu');
+  els.viewMenu = $('view-menu');
+  els.viewMenuLabel = $('view-menu-label');
+  els.btnVariantMenu = $('btn-variant-menu');
+  els.variantChipName = $('variant-chip-name');
+  els.variantChipSub = $('variant-chip-sub');
+  els.btnNewVariant = $('btn-new-variant');
+  els.variantMenu = $('variant-menu');
+  els.btnUndo = $('btn-undo');
+  els.btnRedo = $('btn-redo');
+  els.saveStatus = $('save-status');
+  els.btnExport = $('btn-export');
+  els.btnExportMore = $('btn-export-more');
+  els.exportMenu = $('export-menu');
+  els.workspaceEmpty = $('workspace-empty');
+  els.emptyTitle = $('empty-title');
+  els.emptyText = $('empty-text');
+  els.emptyActions = $('empty-actions');
+  els.nextAction = $('next-action');
+
+  // Inspector
+  els.contentInspector = $('content-inspector');
+  els.contentSummary = $('content-summary');
+  els.contentEmpty = $('content-empty');
+  els.contentForm = $('content-form');
+  els.contentFields = $('content-fields');
+  els.objectPicker = $('object-picker');
+  els.regionInspector = $('region-inspector');
+  els.regionGeometry = $('region-geometry');
+  els.regionAssoc = $('region-assoc');
+  els.fBgValue = $('f-bg-value');
+  els.btnRegionOpenContent = $('btn-region-open-content');
+  els.mapEdit = $('btn-map-edit');
+  els.mapLoad = $('btn-map-load');
+  els.mapNew = $('btn-map-new');
+  els.mapExport = $('btn-map-export');
+  els.contentSwitch = $('btn-content-switch');
+  els.contentLoad = $('btn-content-load');
+  els.contentNew = $('btn-content-new');
+  els.contentExport = $('btn-content-export');
+  els.btnTranslateWorkflow = $('btn-translate-workflow');
+  els.btnContentFind = $('btn-content-find');
+  els.btnDetectRegions = $('btn-detect-regions');
+  els.btnDrawRegion = $('btn-draw-region');
+  els.btnLockRegionQuick = $('btn-lock-region-quick');
+  els.btnRegionMoreMenu = $('btn-region-more-menu');
+  els.regionMoreMenu = $('region-more-menu');
 }
